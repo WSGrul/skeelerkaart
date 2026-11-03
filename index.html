@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="nl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skeelerkaart Zuid-Holland</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+html,body{height:100%;margin:0;font:14px system-ui,sans-serif}
+body{display:flex;flex-direction:column}
+#bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;background:#f4f6f8;border-bottom:1px solid #ccd}
+#bar button,#bar select{font:inherit;padding:5px 8px;border:1px solid #99a;border-radius:6px;background:#fff}
+#bar button.on{background:#1976d2;color:#fff;border-color:#1976d2}
+#map{flex:1}
+#st{flex-basis:100%;color:#333;min-height:1.2em}
+.lg i{display:inline-block;width:18px;height:5px;margin:0 3px 2px 8px;border-radius:2px}
+.leaflet-popup-content input,.leaflet-popup-content select{margin:3px 0;font:inherit;max-width:100%}
+.leaflet-popup-content button{margin:4px 4px 4px 0}
+</style></head><body>
+<div id="bar">
+  <button id="bLoad">Laad dit gebied</button>
+  <label><input type="checkbox" id="auto" checked> auto</label>
+  <select id="fs"><option value="all">Alle ondergronden</option><option value="plus">Asfalt + onbekend</option><option value="asphalt">Alleen asfalt</option></select>
+  <select id="fq"><option value="0">Elke kwaliteit</option><option value="3">Goed of beter</option><option value="4">Alleen uitstekend</option></select>
+  <button id="bRoute">Route maken</button>
+  <button id="bGpx">GPX</button>
+  <button id="bExp">Export labels</button>
+  <button id="bImp">Import</button><input type="file" id="fImp" accept=".json" hidden>
+  <span class="lg"><i style="background:#0a8a3a"></i>uitstekend<i style="background:#7bc043"></i>goed<i style="background:#f5a623"></i>matig<i style="background:#d9381e"></i>slecht<i style="background:#7a7a7a"></i>onbekend<i style="background:repeating-linear-gradient(90deg,#a07850 0 4px,#fff 4px 7px)"></i>geen asfalt</span>
+  <div id="st">Zoom in op een gebied (niveau 14+) om fietspaden te laden.</div>
+</div>
+<div id="map"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const Q={excellent:'Uitstekend',good:'Goed',intermediate:'Matig',bad:'Slecht'};
+const RANK={excellent:4,good:3,intermediate:2,bad:1};
+const COL={excellent:'#0a8a3a',good:'#7bc043',intermediate:'#f5a623',bad:'#d9381e',unknown:'#7a7a7a'};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const st=t=>$('st').textContent=t;
+let mine={};try{mine=JSON.parse(localStorage.getItem('skeeler')||'{}')}catch(e){}
+const save=()=>{try{localStorage.setItem('skeeler',JSON.stringify(mine))}catch(e){}};
+const norm=s=>RANK[s]?s:(s?'bad':'');
+
+const map=L.map('map',{maxBounds:[[51.6,3.7],[52.4,5.2]],maxBoundsViscosity:.8}).setView([52.0,4.45],10);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap-bijdragers'}).addTo(map);
+
+const SERVERS=['https://overpass.kumi.systems/api/interpreter','https://overpass-api.de/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+const ways=new Map(),loaded=[];
+const eff=w=>{const m=mine[w.id]||{},t=w.tags;return{surface:m.surface||t.surface||'',smooth:m.smooth||t.smoothness||'',own:!!mine[w.id]}};
+function pass(w){
+  const e=eff(w),as=e.surface==='asphalt',fs=$('fs').value,fq=+$('fq').value;
+  if(fs==='asphalt'&&!as)return false;
+  if(fs==='plus'&&!(as||!e.surface))return false;
+  if(fq&&(RANK[norm(e.smooth)]||0)<fq)return false;
+  return true;
+}
+function style(w){
+  const e=eff(w),q=norm(e.smooth),other=e.surface&&e.surface!=='asphalt';
+  return{color:other&&!q?'#a07850':COL[q||'unknown'],weight:e.own?6:4,opacity:.9,dashArray:other?'6 6':null};
+}
+function refresh(){
+  for(const w of ways.values()){
+    if(pass(w)){w.line.setStyle(style(w));if(!map.hasLayer(w.line))w.line.addTo(map)}
+    else map.removeLayer(w.line);
+  }
+}
+async function load(){
+  if(map.getZoom()<14){st('Zoom verder in (niveau 14 of hoger) om te laden.');return}
+  const b=map.getBounds();
+  if(loaded.some(x=>x.contains(b)))return;
+  const bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(x=>x.toFixed(5)).join(',');
+  const q=`[out:json][timeout:40];(way["highway"="cycleway"](${bb});way["highway"~"^(path|footway)$"]["bicycle"~"^(designated|yes)$"](${bb}););out geom qt;`;
+  st('Laden…');
+  const errs=[];
+  try{
+    let j=null;
+    for(const [i,u] of SERVERS.entries()){
+      st(`Laden… (server ${i+1}/${SERVERS.length})`);
+      let to;const limit=new Promise((_,rej)=>{to=setTimeout(()=>rej(new Error('time-out')),30000)});
+      try{
+        const r=await Promise.race([fetch(u,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q)}),limit]);
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        const d=await Promise.race([r.json(),limit]);
+        if(!d.elements)throw new Error('leeg antwoord');
+        if(d.remark&&/timed out|runtime error|out of memory/i.test(d.remark))throw new Error('te zwaar: zoom verder in');
+        j=d;break;
+      }catch(e){errs.push(new URL(u).hostname+': '+e.message)}finally{clearTimeout(to)}
+    }
+    if(!j)throw 0;
+    let n=0;
+    for(const el of j.elements){
+      if(el.type!=='way'||ways.has(el.id)||!el.geometry)continue;
+      const w={id:el.id,tags:el.tags||{},nodes:el.nodes,geom:el.geometry.map(p=>[p.lat,p.lon])};
+      w.line=L.polyline(w.geom,{bubblingMouseEvents:false});
+      w.line.on('click',e=>onWay(w,e));
+      ways.set(w.id,w);n++;
+    }
+    loaded.push(b);refresh();st(`${n} nieuwe paden geladen (${ways.size} totaal).`);
+  }catch(e){st('Laden mislukt. '+errs.join(' | '))}
+}
+let tm;map.on('moveend',()=>{if($('auto').checked){clearTimeout(tm);tm=setTimeout(load,900)}});
+$('bLoad').onclick=()=>{loaded.length=0;load()};
+$('fs').onchange=$('fq').onchange=refresh;
+
+function onWay(w,e){
+  if(rmode){addPoint(e.latlng);return}
+  const e2=eff(w),t=w.tags,m=mine[w.id]||{};
+  const opt=(o,v)=>Object.entries(o).map(([k,l])=>`<option value="${k}"${k===v?' selected':''}>${l}</option>`).join('');
+  L.popup().setLatLng(e.latlng).setContent(
+   `<b>${esc(t.name||'Fietspad')}</b><br><small>OSM: surface=${esc(t.surface||'?')}, smoothness=${esc(t.smoothness||'?')}</small><br>
+    Ondergrond <select id="ps">${opt({'':'onbekend',asphalt:'asfalt',other:'anders'},e2.surface==='asphalt'?'asphalt':e2.surface?'other':'')}</select><br>
+    Kwaliteit <select id="pq">${opt({'':'onbekend',...Q},norm(e2.smooth))}</select><br>
+    <input id="pn" placeholder="Notitie" value="${esc(m.note||'')}"><br>
+    <button onclick="saveLabel(${w.id})">Opslaan</button><button onclick="delLabel(${w.id})">Wis</button><br>
+    <a target="_blank" href="https://www.openstreetmap.org/edit?way=${w.id}">Verbeter in OSM ↗</a>`).openOn(map);
+}
+function saveLabel(id){
+  const s=$('ps').value,q=$('pq').value,n=$('pn').value.trim();
+  if(!s&&!q&&!n)delete mine[id];else mine[id]={surface:s,smooth:q,note:n};
+  save();map.closePopup();refresh();
+}
+function delLabel(id){delete mine[id];save();map.closePopup();refresh()}
+
+let rmode=false,pts=[],marks=[],rline=null,rc=[];
+$('bRoute').onclick=()=>{rmode=!rmode;$('bRoute').classList.toggle('on',rmode);if(rmode){clearRoute();st('Tik een startpunt en een eindpunt op de kaart. Alleen paden die door je filters komen worden gebruikt.')}};
+function clearRoute(){pts=[];rc=[];marks.forEach(m=>map.removeLayer(m));marks=[];if(rline)map.removeLayer(rline);rline=null}
+map.on('click',e=>{if(rmode)addPoint(e.latlng)});
+function addPoint(ll){
+  if(pts.length>=2)clearRoute();
+  pts.push(ll);
+  marks.push(L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:pts.length===1?'#1976d2':'#d81b60',fillOpacity:1}).addTo(map));
+  if(pts.length===2)route();else st('Kies nu het eindpunt.');
+}
+function dijkstra(adj,s,t){
+  const dist=new Map([[s,0]]),prev=new Map(),h=[[0,s]];
+  const push=x=>{h.push(x);let i=h.length-1;while(i>0){const p=(i-1)>>1;if(h[p][0]<=h[i][0])break;[h[p],h[i]]=[h[i],h[p]];i=p}};
+  const pop=()=>{const top=h[0],last=h.pop();if(h.length){h[0]=last;let i=0;for(;;){const l=2*i+1,r=l+1;let m=i;if(l<h.length&&h[l][0]<h[m][0])m=l;if(r<h.length&&h[r][0]<h[m][0])m=r;if(m===i)break;[h[m],h[i]]=[h[i],h[m]];i=m}}return top};
+  while(h.length){
+    const[d,u]=pop();if(u===t)break;if(d>dist.get(u))continue;
+    for(const[v,c]of adj.get(u)||[]){const nd=d+c;if(nd<(dist.has(v)?dist.get(v):Infinity)){dist.set(v,nd);prev.set(v,u);push([nd,v])}}
+  }
+  if(!dist.has(t))return null;
+  const path=[];for(let u=t;u!==undefined;u=prev.get(u))path.push(u);
+  return{path:path.reverse(),d:dist.get(t)};
+}
+function route(){
+  const adj=new Map(),pos=new Map(),link=(a,b,d)=>{if(!adj.has(a))adj.set(a,[]);adj.get(a).push([b,d])};
+  for(const w of ways.values()){
+    if(!w.nodes||!pass(w))continue;
+    w.nodes.forEach((n,i)=>{pos.set(n,w.geom[i]);if(i){const d=map.distance(w.geom[i-1],w.geom[i]);link(w.nodes[i-1],n,d);link(n,w.nodes[i-1],d)}});
+  }
+  const snap=ll=>{let best=null,bd=Infinity;for(const[n,p]of pos){const d=map.distance(ll,p);if(d<bd){bd=d;best=n}}return bd<400?best:null};
+  const a=snap(pts[0]),b=snap(pts[1]);
+  if(a===null||b===null){st('Een punt ligt te ver van een pad dat door je filters komt.');return}
+  const r=dijkstra(adj,a,b);
+  if(!r){st('Geen route gevonden. Versoepel de filters of laad meer gebied tussen de punten.');return}
+  rc=r.path.map(n=>pos.get(n));
+  rline=L.polyline(rc,{color:'#1565c0',weight:8,opacity:.6}).addTo(map);
+  st(`Route: ${(r.d/1000).toFixed(1)} km`);
+}
+$('bGpx').onclick=()=>{
+  if(!rc.length){st('Maak eerst een route.');return}
+  const g=`<?xml version="1.0"?><gpx version="1.1" creator="skeelerkaart"><trk><name>Skeelerroute</name><trkseg>${rc.map(p=>`<trkpt lat="${p[0]}" lon="${p[1]}"/>`).join('')}</trkseg></trk></gpx>`;
+  dl('skeelerroute.gpx',g,'application/gpx+xml');
+};
+function dl(name,txt,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type}));a.download=name;a.click()}
+$('bExp').onclick=()=>dl('skeeler-labels.json',JSON.stringify(mine,null,1),'application/json');
+$('bImp').onclick=()=>$('fImp').click();
+$('fImp').onchange=async e=>{
+  try{Object.assign(mine,JSON.parse(await e.target.files[0].text()));save();refresh();st('Labels geïmporteerd.')}catch(x){st('Import mislukt.')}
+};
+</script></body></html>
