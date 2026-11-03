@@ -63,42 +63,50 @@ function refresh(){
     else map.removeLayer(w.line);
   }
 }
+const done=new Set();let busy=false;
+function addWays(j){let n=0;
+  for(const el of j.elements){
+    if(el.type!=='way'||ways.has(el.id)||!el.geometry)continue;
+    const w={id:el.id,tags:el.tags||{},nodes:el.nodes,geom:el.geometry.map(p=>[p.lat,p.lon])};
+    w.line=L.polyline(w.geom,{bubblingMouseEvents:false});
+    w.line.on('click',e=>onWay(w,e));
+    ways.set(w.id,w);n++;
+  }return n}
+async function fetchCell(bb,errs){
+  const q=`[out:json][timeout:25];(way["highway"="cycleway"](${bb});way["highway"~"^(path|footway)$"]["bicycle"~"^(designated|yes)$"](${bb}););out geom qt;`;
+  for(const u of SERVERS){
+    let to;const limit=new Promise((_,rej)=>{to=setTimeout(()=>rej(new Error('time-out')),20000)});
+    try{
+      const r=await Promise.race([fetch(u,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q)}),limit]);
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const d=await Promise.race([r.json(),limit]);
+      if(!d.elements)throw new Error('leeg antwoord');
+      if(d.remark&&/timed out|runtime error|out of memory/i.test(d.remark))throw new Error('te zwaar');
+      return d;
+    }catch(e){errs.push(new URL(u).hostname+': '+e.message)}finally{clearTimeout(to)}
+  }
+  return null;
+}
 async function load(){
+  if(busy)return;
   if(map.getZoom()<14){st('Zoom verder in (niveau 14 of hoger) om te laden.');return}
-  const b=map.getBounds();
-  if(loaded.some(x=>x.contains(b)))return;
-  const bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(x=>x.toFixed(5)).join(',');
-  const q=`[out:json][timeout:40];(way["highway"="cycleway"](${bb});way["highway"~"^(path|footway)$"]["bicycle"~"^(designated|yes)$"](${bb}););out geom qt;`;
-  st('Laden…');
-  const errs=[];
-  try{
-    let j=null;
-    for(const [i,u] of SERVERS.entries()){
-      st(`Laden… (server ${i+1}/${SERVERS.length})`);
-      let to;const limit=new Promise((_,rej)=>{to=setTimeout(()=>rej(new Error('time-out')),30000)});
-      try{
-        const r=await Promise.race([fetch(u,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q)}),limit]);
-        if(!r.ok)throw new Error('HTTP '+r.status);
-        const d=await Promise.race([r.json(),limit]);
-        if(!d.elements)throw new Error('leeg antwoord');
-        if(d.remark&&/timed out|runtime error|out of memory/i.test(d.remark))throw new Error('te zwaar: zoom verder in');
-        j=d;break;
-      }catch(e){errs.push(new URL(u).hostname+': '+e.message)}finally{clearTimeout(to)}
-    }
-    if(!j)throw 0;
-    let n=0;
-    for(const el of j.elements){
-      if(el.type!=='way'||ways.has(el.id)||!el.geometry)continue;
-      const w={id:el.id,tags:el.tags||{},nodes:el.nodes,geom:el.geometry.map(p=>[p.lat,p.lon])};
-      w.line=L.polyline(w.geom,{bubblingMouseEvents:false});
-      w.line.on('click',e=>onWay(w,e));
-      ways.set(w.id,w);n++;
-    }
-    loaded.push(b);refresh();st(`${n} nieuwe paden geladen (${ways.size} totaal).`);
-  }catch(e){st('Laden mislukt. '+errs.join(' | '))}
+  const b=map.getBounds(),DY=.02,DX=.03,cells=[];
+  for(let y=Math.floor(b.getSouth()/DY);y<=Math.floor(b.getNorth()/DY);y++)
+    for(let x=Math.floor(b.getWest()/DX);x<=Math.floor(b.getEast()/DX);x++)
+      if(!done.has(y+'_'+x))cells.push([y,x]);
+  if(!cells.length)return;
+  busy=true;let ok=0,fail=0,n=0;const errs=[];
+  for(const [y,x] of cells){
+    st(`Laden… blok ${ok+fail+1}/${cells.length}`);
+    const bb=[y*DY,x*DX,(y+1)*DY,(x+1)*DX].map(v=>v.toFixed(5)).join(',');
+    const d=await fetchCell(bb,errs);
+    if(d){n+=addWays(d);done.add(y+'_'+x);ok++;refresh()}else fail++;
+  }
+  busy=false;
+  st(fail?`${n} paden geladen, ${fail} van ${cells.length} blokken mislukt (${[...new Set(errs)].slice(0,3).join(' | ')}). Druk op "Laad dit gebied" om opnieuw te proberen.`:`${n} nieuwe paden geladen (${ways.size} totaal).`);
 }
 let tm;map.on('moveend',()=>{if($('auto').checked){clearTimeout(tm);tm=setTimeout(load,900)}});
-$('bLoad').onclick=()=>{loaded.length=0;load()};
+$('bLoad').onclick=load;
 $('fs').onchange=$('fq').onchange=refresh;
 
 function onWay(w,e){
