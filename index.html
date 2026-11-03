@@ -25,7 +25,8 @@ body{display:flex;flex-direction:column}
   <button id="bExp">Export labels</button>
   <button id="bImp">Import</button><input type="file" id="fImp" accept=".json" hidden>
   <span class="lg"><i style="background:#0a8a3a"></i>uitstekend<i style="background:#7bc043"></i>goed<i style="background:#f5a623"></i>matig<i style="background:#d9381e"></i>slecht<i style="background:#7a7a7a"></i>onbekend<i style="background:repeating-linear-gradient(90deg,#a07850 0 4px,#fff 4px 7px)"></i>geen asfalt</span>
-  <div id="st">Zoom in op een gebied (niveau 14+) om fietspaden te laden.</div>
+  <span id="zl" style="font-weight:600"></span>
+  <div id="st">Zoom in (niveau 14+) voor automatisch laden, of zoom uit tot niveau 11 en druk op Laad dit gebied.</div>
 </div>
 <div id="map"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -63,7 +64,7 @@ function refresh(){
     else map.removeLayer(w.line);
   }
 }
-const done=new Set();let busy=false;
+const done=new Set(),DY=.02,DX=.03;let busy=false,cancel=false;
 function addWays(j){let n=0;
   for(const el of j.elements){
     if(el.type!=='way'||ways.has(el.id)||!el.geometry)continue;
@@ -72,40 +73,91 @@ function addWays(j){let n=0;
     w.line.on('click',e=>onWay(w,e));
     ways.set(w.id,w);n++;
   }return n}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));let srv=0;
 async function fetchCell(bb,errs){
   const q=`[out:json][timeout:25];(way["highway"="cycleway"](${bb});way["highway"~"^(path|footway)$"]["bicycle"~"^(designated|yes)$"](${bb}););out geom qt;`;
-  for(const u of SERVERS){
-    let to;const limit=new Promise((_,rej)=>{to=setTimeout(()=>rej(new Error('time-out')),20000)});
-    try{
-      const r=await Promise.race([fetch(u,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q)}),limit]);
-      if(!r.ok)throw new Error('HTTP '+r.status);
-      const d=await Promise.race([r.json(),limit]);
-      if(!d.elements)throw new Error('leeg antwoord');
-      if(d.remark&&/timed out|runtime error|out of memory/i.test(d.remark))throw new Error('te zwaar');
-      return d;
-    }catch(e){errs.push(new URL(u).hostname+': '+e.message)}finally{clearTimeout(to)}
+  for(let round=0;round<2;round++){
+    for(let k=0;k<SERVERS.length;k++){
+      const i=(srv+k)%SERVERS.length,u=SERVERS[i];
+      let to;const limit=new Promise((_,rej)=>{to=setTimeout(()=>rej(new Error('time-out')),25000)});
+      try{
+        const r=await Promise.race([fetch(u,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q)}),limit]);
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        const d=await Promise.race([r.json(),limit]);
+        if(!d.elements)throw new Error('leeg antwoord');
+        if(d.remark&&/timed out|runtime error|out of memory/i.test(d.remark))throw new Error('te zwaar');
+        srv=i;return d;
+      }catch(e){errs.push(new URL(u).hostname+': '+e.message)}finally{clearTimeout(to)}
+      await sleep(1500);
+    }
+    if(round===0)await sleep(6000);
   }
   return null;
 }
+async function loadCells(cells,label){
+  busy=true;cancel=false;let ok=0,fail=0,n=0,i=0;const errs=[];
+  const worker=async()=>{
+    while(i<cells.length&&!cancel){
+      const [y,x]=cells[i++];
+      const bb=[y*DY,x*DX,(y+1)*DY,(x+1)*DX].map(v=>v.toFixed(5)).join(',');
+      const d=await fetchCell(bb,errs);
+      if(d){const o={elements:d.elements.filter(e=>e.type==='way')};n+=addWays(o);done.add(y+'_'+x);idbPut(y+'_'+x,o);ok++}else fail++;
+      st(`${label} ${ok+fail}/${cells.length}…`);await sleep(600);
+      if(!(ok%5))refresh();
+    }
+  };
+  await worker();
+  busy=false;refresh();
+  return{ok,fail,n,errs:[...new Set(errs)].slice(0,3)};
+}
 async function load(){
-  if(busy)return;
-  if(map.getZoom()<14){st('Zoom verder in (niveau 14 of hoger) om te laden.');return}
-  const b=map.getBounds(),DY=.02,DX=.03,cells=[];
+  if(busy){cancel=true;st('Stoppen…');return}
+  if(map.getZoom()<11){st('Zoom in tot minstens niveau 11 om te laden.');return}
+  const b=map.getBounds(),cells=[];
   for(let y=Math.floor(b.getSouth()/DY);y<=Math.floor(b.getNorth()/DY);y++)
     for(let x=Math.floor(b.getWest()/DX);x<=Math.floor(b.getEast()/DX);x++)
       if(!done.has(y+'_'+x))cells.push([y,x]);
-  if(!cells.length)return;
-  busy=true;let ok=0,fail=0,n=0;const errs=[];
-  for(const [y,x] of cells){
-    st(`Laden… blok ${ok+fail+1}/${cells.length}`);
-    const bb=[y*DY,x*DX,(y+1)*DY,(x+1)*DX].map(v=>v.toFixed(5)).join(',');
-    const d=await fetchCell(bb,errs);
-    if(d){n+=addWays(d);done.add(y+'_'+x);ok++;refresh()}else fail++;
-  }
-  busy=false;
-  st(fail?`${n} paden geladen, ${fail} van ${cells.length} blokken mislukt (${[...new Set(errs)].slice(0,3).join(' | ')}). Druk op "Laad dit gebied" om opnieuw te proberen.`:`${n} nieuwe paden geladen (${ways.size} totaal).`);
+  if(!cells.length){st('Dit gebied is al geladen.');return}
+  if(cells.length>150){st(`Te groot (${cells.length} blokken). Zoom verder in.`);return}
+  $('bLoad').textContent='Stop laden';
+  const r=await loadCells(cells,'Laden');
+  $('bLoad').textContent='Laad dit gebied';
+  st(r.fail?`${r.n} paden geladen, ${r.fail} van ${cells.length} blokken mislukt (${r.errs.join(' | ')}). Druk nogmaals op "Laad dit gebied".`:`${r.n} nieuwe paden geladen (${ways.size} totaal).`);
 }
-let tm;map.on('moveend',()=>{if($('auto').checked){clearTimeout(tm);tm=setTimeout(load,900)}});
+function corridorCells(a,b,km){
+  const pad=km/111,cos=Math.cos(a.lat*Math.PI/180),out=[];
+  const y0=Math.floor((Math.min(a.lat,b.lat)-pad)/DY),y1=Math.floor((Math.max(a.lat,b.lat)+pad)/DY);
+  const x0=Math.floor((Math.min(a.lng,b.lng)-pad/cos)/DX),x1=Math.floor((Math.max(a.lng,b.lng)+pad/cos)/DX);
+  const ax=a.lng*cos*111,ay=a.lat*111,dx=b.lng*cos*111-ax,dy=b.lat*111-ay,l2=dx*dx+dy*dy||1;
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){
+    if(done.has(y+'_'+x))continue;
+    const px=(x+.5)*DX*cos*111,py=(y+.5)*DY*111;
+    const t=Math.max(0,Math.min(1,((px-ax)*dx+(py-ay)*dy)/l2));
+    if(Math.hypot(ax+t*dx-px,ay+t*dy-py)<=km+1.5)out.push([y,x]);
+  }
+  return out;
+}
+async function planRoute(){
+  if(busy){st('Wacht tot het laden klaar is of druk op "Stop laden".');clearRoute();return}
+  const cells=corridorCells(pts[0],pts[1],3);
+  if(cells.length>400){st(`Te ver (${cells.length} blokken te laden). Kies punten dichter bij elkaar.`);return}
+  let note='';
+  if(cells.length){
+    $('bLoad').textContent='Stop laden';
+    const r=await loadCells(cells,'Routedata laden, blok');
+    $('bLoad').textContent='Laad dit gebied';
+    if(r.fail)note=` (${r.fail} blokken ontbraken, de route kan omwegen maken)`;
+  }
+  route();$('st').textContent+=note;
+}
+let idb=null;
+const idbOpen=()=>new Promise(res=>{try{const r=indexedDB.open('skeeler',1);r.onupgradeneeded=()=>r.result.createObjectStore('cells');r.onsuccess=()=>res(r.result);r.onerror=()=>res(null)}catch(e){res(null)}});
+const idbPut=(k,v)=>new Promise(res=>{if(!idb)return res();try{const t=idb.transaction('cells','readwrite');t.objectStore('cells').put(v,k);t.oncomplete=t.onerror=()=>res()}catch(e){res()}});
+const idbAll=()=>new Promise(res=>{if(!idb)return res([]);const out=[];try{const c=idb.transaction('cells').objectStore('cells').openCursor();c.onsuccess=()=>{const u=c.result;if(u){out.push([u.key,u.value]);u.continue()}else res(out)};c.onerror=()=>res(out)}catch(e){res(out)}});
+(async()=>{idb=await idbOpen();const all=await idbAll();for(const[k,v]of all){addWays(v);done.add(k)}if(all.length){refresh();st(`${all.length} opgeslagen blokken geladen (${ways.size} paden).`)}})();
+const showZ=()=>{const z=Math.round(map.getZoom());$('zl').textContent='Zoom '+z+(z>=14?' ✓ auto-laden':z>=11?' (handmatig laden)':' (te ver uit)')};
+map.on('zoomend',showZ);showZ();
+let tm;map.on('moveend',()=>{if($('auto').checked){clearTimeout(tm);tm=setTimeout(()=>{if(!busy&&map.getZoom()>=14)load()},900)}});
 $('bLoad').onclick=load;
 $('fs').onchange=$('fq').onchange=refresh;
 
@@ -136,7 +188,7 @@ function addPoint(ll){
   if(pts.length>=2)clearRoute();
   pts.push(ll);
   marks.push(L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:pts.length===1?'#1976d2':'#d81b60',fillOpacity:1}).addTo(map));
-  if(pts.length===2)route();else st('Kies nu het eindpunt.');
+  if(pts.length===2)planRoute();else st('Kies nu het eindpunt.');
 }
 function dijkstra(adj,s,t){
   const dist=new Map([[s,0]]),prev=new Map(),h=[[0,s]];
