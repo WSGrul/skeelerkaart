@@ -20,6 +20,7 @@ body{display:flex;flex-direction:column}
   <label><input type="checkbox" id="auto" checked> auto</label>
   <select id="fs"><option value="all">Alle ondergronden</option><option value="plus">Asfalt + onbekend</option><option value="asphalt">Alleen asfalt</option></select>
   <select id="fq"><option value="0">Elke kwaliteit</option><option value="3">Goed of beter</option><option value="4">Alleen uitstekend</option></select>
+  <button id="bCells" class="on" title="Blauw = geladen, rood = mislukt">Blokken</button>
   <button id="bRoute">Route maken</button>
   <button id="bGpx">GPX</button>
   <button id="bExp">Export labels</button>
@@ -65,6 +66,13 @@ function refresh(){
   }
 }
 const done=new Set(),DY=.02,DX=.03;let busy=false,cancel=false;
+const cellLayer=L.layerGroup().addTo(map),cellRects=new Map();
+function showCell(key,ok){
+  const [y,x]=key.split('_').map(Number);
+  if(cellRects.has(key))cellLayer.removeLayer(cellRects.get(key));
+  const r=L.rectangle([[y*DY,x*DX],[(y+1)*DY,(x+1)*DX]],{color:ok?'#1976d2':'#d32f2f',weight:1,fillOpacity:ok?.05:.15,dashArray:ok?null:'4',interactive:false}).addTo(cellLayer);
+  cellRects.set(key,r);
+}
 function addWays(j){let n=0;
   for(const el of j.elements){
     if(el.type!=='way'||ways.has(el.id)||!el.geometry)continue;
@@ -73,13 +81,15 @@ function addWays(j){let n=0;
     w.line.on('click',e=>onWay(w,e));
     ways.set(w.id,w);n++;
   }return n}
+const KEEP=['name','surface','smoothness','highway'];
+const slim=els=>els.filter(e=>e.type==='way'&&e.geometry).map(e=>({type:'way',id:e.id,nodes:e.nodes,geometry:e.geometry,tags:Object.fromEntries(KEEP.filter(k=>e.tags&&e.tags[k]).map(k=>[k,e.tags[k]]))}));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));let srv=0;
-async function fetchCell(bb,errs){
-  const q=`[out:json][timeout:25];(way["highway"="cycleway"](${bb});way["highway"~"^(path|footway)$"]["bicycle"~"^(designated|yes)$"](${bb}););out geom qt;`;
-  for(let round=0;round<2;round++){
+async function fetchCell(bb,errs,rounds=2){
+  const q=`[out:json][timeout:40];(way["highway"="cycleway"](${bb});way["highway"="path"]["bicycle"="designated"](${bb});way["highway"="footway"]["bicycle"="designated"](${bb}););out geom qt;`;
+  for(let round=0;round<rounds;round++){
     for(let k=0;k<SERVERS.length;k++){
       const i=(srv+k)%SERVERS.length,u=SERVERS[i];
-      let to;const limit=new Promise((_,rej)=>{to=setTimeout(()=>rej(new Error('time-out')),25000)});
+      let to;const limit=new Promise((_,rej)=>{to=setTimeout(()=>rej(new Error('time-out')),40000)});
       try{
         const r=await Promise.race([fetch(u,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q)}),limit]);
         if(!r.ok)throw new Error('HTTP '+r.status);
@@ -90,7 +100,7 @@ async function fetchCell(bb,errs){
       }catch(e){errs.push(new URL(u).hostname+': '+e.message)}finally{clearTimeout(to)}
       await sleep(1500);
     }
-    if(round===0)await sleep(6000);
+    if(round<rounds-1)await sleep(6000);
   }
   return null;
 }
@@ -100,8 +110,20 @@ async function loadCells(cells,label){
     while(i<cells.length&&!cancel){
       const [y,x]=cells[i++];
       const bb=[y*DY,x*DX,(y+1)*DY,(x+1)*DX].map(v=>v.toFixed(5)).join(',');
-      const d=await fetchCell(bb,errs);
-      if(d){const o={elements:d.elements.filter(e=>e.type==='way')};n+=addWays(o);done.add(y+'_'+x);idbPut(y+'_'+x,o);ok++}else fail++;
+      const key=y+'_'+x,d=await fetchCell(bb,errs,1);
+      if(d){const o={elements:slim(d.elements)};n+=addWays(o);done.add(key);showCell(key,true);idbPut(key,o);ok++}
+      else{
+        let all=true;const els=[];
+        for(const [a,c] of [[0,0],[0,1],[1,0],[1,1]]){
+          st(`${label} ${ok+fail+1}/${cells.length}: drukke wijk, in kleinere stukjes…`);
+          const b2=[y*DY+a*DY/2,x*DX+c*DX/2,y*DY+(a+1)*DY/2,x*DX+(c+1)*DX/2].map(v=>v.toFixed(5)).join(',');
+          const d2=await fetchCell(b2,errs,2);
+          if(d2)els.push(...slim(d2.elements));else all=false;
+          await sleep(600);
+        }
+        const o={elements:els};n+=addWays(o);
+        if(all){done.add(key);showCell(key,true);idbPut(key,o);ok++}else{fail++;showCell(key,false)}
+      }
       st(`${label} ${ok+fail}/${cells.length}…`);await sleep(600);
       if(!(ok%5))refresh();
     }
@@ -154,11 +176,12 @@ let idb=null;
 const idbOpen=()=>new Promise(res=>{try{const r=indexedDB.open('skeeler',1);r.onupgradeneeded=()=>r.result.createObjectStore('cells');r.onsuccess=()=>res(r.result);r.onerror=()=>res(null)}catch(e){res(null)}});
 const idbPut=(k,v)=>new Promise(res=>{if(!idb)return res();try{const t=idb.transaction('cells','readwrite');t.objectStore('cells').put(v,k);t.oncomplete=t.onerror=()=>res()}catch(e){res()}});
 const idbAll=()=>new Promise(res=>{if(!idb)return res([]);const out=[];try{const c=idb.transaction('cells').objectStore('cells').openCursor();c.onsuccess=()=>{const u=c.result;if(u){out.push([u.key,u.value]);u.continue()}else res(out)};c.onerror=()=>res(out)}catch(e){res(out)}});
-(async()=>{idb=await idbOpen();const all=await idbAll();for(const[k,v]of all){addWays(v);done.add(k)}if(all.length){refresh();st(`${all.length} opgeslagen blokken geladen (${ways.size} paden).`)}})();
+(async()=>{idb=await idbOpen();const all=await idbAll();for(const[k,v]of all){addWays(v);done.add(k);showCell(k,true)}if(all.length){refresh();st(`${all.length} opgeslagen blokken geladen (${ways.size} paden).`)}})();
 const showZ=()=>{const z=Math.round(map.getZoom());$('zl').textContent='Zoom '+z+(z>=14?' ✓ auto-laden':z>=11?' (handmatig laden)':' (te ver uit)')};
 map.on('zoomend',showZ);showZ();
 let tm;map.on('moveend',()=>{if($('auto').checked){clearTimeout(tm);tm=setTimeout(()=>{if(!busy&&map.getZoom()>=14)load()},900)}});
 $('bLoad').onclick=load;
+$('bCells').onclick=()=>{const on=map.hasLayer(cellLayer);on?map.removeLayer(cellLayer):cellLayer.addTo(map);$('bCells').classList.toggle('on',!on)};
 $('fs').onchange=$('fq').onchange=refresh;
 
 function onWay(w,e){
