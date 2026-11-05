@@ -10,6 +10,7 @@ body{display:flex;flex-direction:column}
 #bar button,#bar select{font:inherit;padding:5px 8px;border:1px solid #99a;border-radius:6px;background:#fff}
 #bar button.on{background:#1976d2;color:#fff;border-color:#1976d2}
 #bar button{cursor:pointer}
+#bar button:disabled{opacity:.4}
 #map{flex:1}
 .leaflet-popup-content input,.leaflet-popup-content select{margin:3px 0;font:inherit;max-width:100%}
 .leaflet-popup-content button{margin:4px 4px 4px 0}
@@ -22,6 +23,9 @@ body{display:flex;flex-direction:column}
   <select id="fq"><option value="0">Elke kwaliteit</option><option value="3">Goed of beter</option><option value="4">Alleen uitstekend</option><option value="unk">Kwaliteit onbekend</option></select>
   <button id="bRoads" title="Gedeelde wegen tonen (vanaf zoom 12)">Wegen</button>
   <button id="bRoute">Route maken</button>
+  <button id="bUndo" title="Ongedaan maken">↶</button><button id="bRedo" title="Opnieuw">↷</button>
+  <button id="bBack">Terug naar start</button><button id="bClear">Wis route</button>
+  <b id="ri"></b>
   <button id="bGpx">GPX</button>
   <button id="bExp">Export labels</button>
   <button id="bImp">Import</button><input type="file" id="fImp" accept=".json" hidden>
@@ -112,7 +116,7 @@ async function loadVisible(){
   const fail=await loadKeys(todo,todo.length>3?'Laden':'');
   refresh();stats();if(fail)st('Een datablok kon niet geladen worden.');
 }
-$('bRoads').onclick=()=>{roadsOn=!roadsOn;$('bRoads').classList.toggle('on',roadsOn);if(roadsOn&&map.getZoom()<MINZR)st(`Zoom in (niveau ${MINZR}+) om wegen te laden.`);refresh();loadVisible()};
+$('bRoads').onclick=()=>{roadsOn=!roadsOn;$('bRoads').classList.toggle('on',roadsOn);if(roadsOn&&map.getZoom()<MINZR)st(`Zoom in (niveau ${MINZR}+) om wegen te laden.`);refresh();loadVisible();if(wps.length)rebuild()};
 
 function onWay(w,e){
   if(rmode){addPoint(e.latlng);return}
@@ -129,19 +133,33 @@ function onWay(w,e){
 function saveLabel(id){
   const sf=$('ps').value,q=$('pq').value,n=$('pn').value.trim();
   if(!sf&&!q&&!n)delete mine[id];else mine[id]={surface:sf,smooth:q,note:n};
-  save();map.closePopup();refresh();stats();
+  save();ver++;map.closePopup();refresh();stats();if(wps.length)rebuild();
 }
-function delLabel(id){delete mine[id];save();map.closePopup();refresh();stats()}
+function delLabel(id){delete mine[id];save();ver++;map.closePopup();refresh();stats();if(wps.length)rebuild()}
 
-let rmode=false,pts=[],marks=[],rline=null,rc=[];
-$('bRoute').onclick=()=>{rmode=!rmode;$('bRoute').classList.toggle('on',rmode);if(rmode){clearRoute();st('Tik een start- en eindpunt. De route volgt alleen paden die door je filters komen.')}};
-function clearRoute(){pts=[];rc=[];marks.forEach(m=>map.removeLayer(m));marks=[];if(rline)map.removeLayer(rline);rline=null}
+let rmode=false,wps=[],hist=[],fut=[],marks=[],rc=[],ver=0;
+const rl=L.layerGroup().addTo(map);
+const isClosed=()=>wps.length>2&&wps[wps.length-1]===wps[0];
+$('bRoute').onclick=()=>{rmode=!rmode;$('bRoute').classList.toggle('on',rmode);if(rmode)st('Tik punten op de kaart. Tik op het groene startpunt om een rondje te sluiten.')};
+function commit(n){hist.push(wps);fut=[];wps=n;rebuild()}
+$('bUndo').onclick=()=>{if(hist.length){fut.push(wps);wps=hist.pop();rebuild()}};
+$('bRedo').onclick=()=>{if(fut.length){hist.push(wps);wps=fut.pop();rebuild()}};
+$('bBack').onclick=()=>{if(wps.length>=2&&!isClosed())commit([...wps,wps[0]])};
+$('bClear').onclick=()=>{if(wps.length)commit([])};
 map.on('click',e=>{if(rmode)addPoint(e.latlng)});
 function addPoint(ll){
-  if(pts.length>=2)clearRoute();
-  pts.push(ll);
-  marks.push(L.circleMarker(ll,{radius:8,color:'#fff',weight:3,fillColor:pts.length===1?'#1976d2':'#d81b60',fillOpacity:1}).addTo(map));
-  if(pts.length===2)planRoute();else st('Kies nu het eindpunt.');
+  if(wps.length>=2&&!isClosed()&&map.latLngToContainerPoint(wps[0]).distanceTo(map.latLngToContainerPoint(ll))<26){commit([...wps,wps[0]]);return}
+  commit([...wps,ll]);
+}
+function buttons(){$('bUndo').disabled=!hist.length;$('bRedo').disabled=!fut.length;$('bBack').disabled=wps.length<2||isClosed();$('bClear').disabled=!wps.length}
+function drawMarkers(){
+  marks.forEach(m=>map.removeLayer(m));marks=[];
+  const closed=isClosed(),n=wps.length;
+  wps.forEach((p,i)=>{
+    if(closed&&i===n-1)return;
+    const first=i===0,last=i===n-1&&!closed;
+    marks.push(L.circleMarker(p,{radius:first?10:7,color:'#fff',weight:3,fillColor:first?'#2e7d32':last?'#d81b60':'#1976d2',fillOpacity:1,interactive:false}).addTo(map));
+  });
 }
 function corridorKeys(a,b,km,chunks,pre){
   const {dy,dx}=IDX,pad=km/111,cos=Math.cos(a.lat*Math.PI/180),out=[];
@@ -154,11 +172,59 @@ function corridorKeys(a,b,km,chunks,pre){
     }
   return out;
 }
-async function planRoute(){
-  if(!IDX)return;
-  const keys=[...corridorKeys(pts[0],pts[1],12,IDX.chunks,''),...(roadsOn?corridorKeys(pts[0],pts[1],12,IDX.rchunks,'r/'):[])].filter(k=>!got.has(k));
-  let fail=0;if(keys.length){fail=await loadKeys(keys,'Routedata laden');refresh()}
-  route();if(fail)$('st').textContent+=` (${fail} datablokken ontbraken)`;
+let rbusy=false,ragain=false;
+async function rebuild(){
+  if(rbusy){ragain=true;return}
+  rbusy=true;
+  try{do{ragain=false;await doRebuild()}while(ragain)}finally{rbusy=false}
+}
+let G=null,Gsig='';
+function getGraph(){
+  const sig=[ways.size,$('fs').value,$('fq').value,roadsOn,ver].join('|');
+  if(G&&sig===Gsig)return G;
+  const adj=new Map(),pos=new Map(),K=p=>p[0]+','+p[1],link=(a,b,d)=>{if(!adj.has(a))adj.set(a,[]);adj.get(a).push([b,d])};
+  for(const w of ways.values()){
+    if(!pass(w))continue;const g=w.geom;
+    for(let i=0;i<g.length;i++){const k=K(g[i]);pos.set(k,g[i]);if(i){const k0=K(g[i-1]),d=map.distance(g[i-1],g[i]);link(k0,k,d);link(k,k0,d)}}
+  }
+  Gsig=sig;return G={adj,pos,snaps:new Map(),segs:new Map()};
+}
+function snapNode(g,ll){
+  const key=ll.lat+','+ll.lng;if(g.snaps.has(key))return g.snaps.get(key);
+  const cos=Math.cos(ll.lat*Math.PI/180);let best=null,bd=Infinity;
+  for(const[n,p]of g.pos){const dy=p[0]-ll.lat,dx=(p[1]-ll.lng)*cos,d=dx*dx+dy*dy;if(d<bd){bd=d;best=n}}
+  const r=Math.sqrt(bd)*111000<400?best:null;g.snaps.set(key,r);return r;
+}
+async function doRebuild(){
+  drawMarkers();buttons();rl.clearLayers();rc=[];
+  if(!wps.length){$('ri').textContent='';return}
+  if(wps.length===1)$('ri').textContent='Kies een volgend punt';
+  if(IDX){
+    const need=new Set();
+    wps.forEach((p,i)=>{
+      const a=wps[i-1]||p;
+      corridorKeys(a,p,12,IDX.chunks,'').forEach(k=>need.add(k));
+      if(roadsOn)corridorKeys(a,p,12,IDX.rchunks,'r/').forEach(k=>need.add(k));
+    });
+    const keys=[...need].filter(k=>!got.has(k)&&!pending.has(k));
+    if(keys.length){const fail=await loadKeys(keys,'Routedata laden');refresh();stats();if(fail)st(`${fail} datablokken ontbraken`)}
+  }
+  if(wps.length<2)return;
+  const g=getGraph(),nodes=wps.map(p=>snapNode(g,p));
+  let total=0;const segs=[],miss=[];
+  for(let i=1;i<wps.length;i++){
+    const a=nodes[i-1],b=nodes[i];
+    if(a===null||b===null){miss.push([wps[i-1],wps[i]]);continue}
+    if(a===b)continue;
+    const ck=a+'>'+b;let r=g.segs.get(ck);
+    if(r===undefined){r=dijkstra(g.adj,a,b);g.segs.set(ck,r)}
+    if(!r){miss.push([wps[i-1],wps[i]]);continue}
+    total+=r.d;const c=r.path.map(n=>g.pos.get(n));segs.push(c);for(const q of c)rc.push(q);
+  }
+  segs.forEach(c=>L.polyline(c,{color:'#1565c0',weight:8,opacity:.65,interactive:false}).addTo(rl));
+  miss.forEach(m=>L.polyline(m,{color:'#d32f2f',weight:3,dashArray:'6 6',interactive:false}).addTo(rl));
+  $('ri').textContent=(isClosed()?'Rondje ':'Route ')+(total/1000).toFixed(1).replace('.',',')+' km · '+(isClosed()?wps.length-1:wps.length)+' punten'+(miss.length?` · ${miss.length} stuk(ken) zonder verbinding (rood)`:'');
+  if(miss.length)st('Rode stippellijn: geen pad gevonden die door je filters komt, of een punt ligt te ver van een pad.');
 }
 function dijkstra(adj,s,t){
   const dist=new Map([[s,0]]),prev=new Map(),h=[[0,s]];
@@ -172,35 +238,20 @@ function dijkstra(adj,s,t){
   const path=[];for(let u=t;u!==undefined;u=prev.get(u))path.push(u);
   return{path:path.reverse(),d:dist.get(t)};
 }
-function route(){
-  const adj=new Map(),pos=new Map(),K=p=>p[0]+','+p[1],link=(a,b,d)=>{if(!adj.has(a))adj.set(a,[]);adj.get(a).push([b,d])};
-  for(const w of ways.values()){
-    if(!pass(w))continue;const g=w.geom;
-    for(let i=0;i<g.length;i++){const k=K(g[i]);pos.set(k,g[i]);if(i){const k0=K(g[i-1]),d=map.distance(g[i-1],g[i]);link(k0,k,d);link(k,k0,d)}}
-  }
-  const snap=ll=>{let best=null,bd=Infinity;for(const[n,p]of pos){const d=map.distance(ll,p);if(d<bd){bd=d;best=n}}return bd<400?best:null};
-  const a=snap(pts[0]),b=snap(pts[1]);
-  if(a===null||b===null){st('Een punt ligt te ver van een pad dat door je filters komt.');return}
-  const r=dijkstra(adj,a,b);
-  if(!r){st('Geen route gevonden. Versoepel de filters, of er ontbreekt een verbinding in de data.');return}
-  rc=r.path.map(n=>pos.get(n));
-  rline=L.polyline(rc,{color:'#1565c0',weight:8,opacity:.6,interactive:false}).addTo(map);
-  st(`Route: ${(r.d/1000).toFixed(1)} km`);
-}
 function dl(name,txt,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type}));a.download=name;a.click()}
 $('bGpx').onclick=()=>{
-  if(!rc.length){st('Maak eerst een route.');return}
+  if(rc.length<2){st('Maak eerst een route.');return}
   dl('skeelerroute.gpx',`<?xml version="1.0"?><gpx version="1.1" creator="skeelerkaart"><trk><name>Skeelerroute</name><trkseg>${rc.map(p=>`<trkpt lat="${p[0]}" lon="${p[1]}"/>`).join('')}</trkseg></trk></gpx>`,'application/gpx+xml');
 };
 $('bExp').onclick=()=>dl('skeeler-labels.json',JSON.stringify(mine,null,1),'application/json');
 $('bImp').onclick=()=>$('fImp').click();
 $('fImp').onchange=async e=>{
-  try{Object.assign(mine,JSON.parse(await e.target.files[0].text()));save();refresh();stats();st('Labels geïmporteerd.')}catch(x){st('Import mislukt.')}
+  try{Object.assign(mine,JSON.parse(await e.target.files[0].text()));save();ver++;refresh();stats();if(wps.length)rebuild();st('Labels geïmporteerd.')}catch(x){st('Import mislukt.')}
 };
 const showZ=()=>{const z=Math.round(map.getZoom());$('zl').textContent='Zoom '+z+(z<MINZ?' (te ver uit)':'')};
 map.on('zoomend',showZ);showZ();
 let tm;map.on('moveend',()=>{clearTimeout(tm);tm=setTimeout(loadVisible,300)});
-$('fs').onchange=$('fq').onchange=refresh;
+$('fs').onchange=$('fq').onchange=()=>{refresh();if(wps.length)rebuild()};
 
 fetch('data/index.json').then(r=>r.json()).then(j=>{IDX=j;loadVisible()})
   .catch(()=>{$('st').textContent='Geen data gevonden. Is de GitHub Action al gelopen?'});
