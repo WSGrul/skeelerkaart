@@ -215,4 +215,373 @@ function addWays(list) {
 }
 
 async function loadKeys(keys, label) {
-  let i = 0, n = 0,
+  let i = 0, n = 0, fail = 0;
+
+  const worker = async () => {
+    while (i < keys.length) {
+      const k = keys[i++];
+      pending.add(k);
+
+      try {
+        const r = await fetch('data/' + k + '.json');
+
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}: data/${k}.json`);
+        }
+
+        addWays((await r.json()).w);
+        got.add(k);
+      } catch (e) {
+        console.error('Datablok laden mislukt:', k, e);
+        fail++;
+      }
+
+      pending.delete(k);
+      n++;
+
+      if (label) st(`${label} ${n}/${keys.length}…`);
+    }
+  };
+
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  return fail;
+}
+
+function visibleKeys(chunks, pre) {
+  const b = map.getBounds(), {dy, dx} = IDX, out = [];
+
+  for (
+    let y = Math.floor(b.getSouth() / dy);
+    y <= Math.floor(b.getNorth() / dy);
+    y++
+  ) {
+    for (
+      let x = Math.floor(b.getWest() / dx);
+      x <= Math.floor(b.getEast() / dx);
+      x++
+    ) {
+      const k = pre + y + '_' + x;
+
+      if (chunks[y + '_' + x] && !got.has(k) && !pending.has(k)) {
+        out.push(k);
+      }
+    }
+  }
+
+  return out;
+}
+
+async function loadVisible() {
+  if (!IDX) return;
+
+  const z = map.getZoom();
+
+  if (z < MINZ) {
+    st(`Zoom in (niveau ${MINZ}+) om paden te tonen.`);
+    return;
+  }
+
+  const todo = visibleKeys(IDX.chunks, '');
+
+  if (roadsOn && z >= MINZR) {
+    todo.push(...visibleKeys(IDX.rchunks, 'r/'));
+  }
+
+  if (!todo.length) {
+    if (ways.size) {
+      stats();
+    } else {
+      st('Data-index geladen, maar geen datablokken gevonden voor dit kaartgebied.');
+    }
+    return;
+  }
+
+  const fail = await loadKeys(todo, todo.length > 3 ? 'Laden' : '');
+  refresh();
+  stats();
+
+  if (fail) st(`${fail} datablok(ken) konden niet geladen worden.`);
+}
+
+$('bRoads').onclick = () => {
+  roadsOn = !roadsOn;
+  $('bRoads').classList.toggle('on', roadsOn);
+
+  if (roadsOn && map.getZoom() < MINZR) {
+    st(`Zoom in (niveau ${MINZR}+) om wegen te laden.`);
+  }
+
+  refresh();
+  loadVisible();
+  if (wps.length) rebuild();
+};
+
+function onWay(w, e) {
+  if (rmode) {
+    addPoint(e.latlng);
+    return;
+  }
+
+  const x = eff(w), m = mine[w.id] || {};
+  const opt = (o, v) => Object.entries(o)
+    .map(([k, l]) =>
+      `<option value="${k}"${k === v ? ' selected' : ''}>${l}</option>`
+    )
+    .join('');
+
+  L.popup().setLatLng(e.latlng).setContent(
+    `<b>${esc(w.name || (w.road ? 'Gedeelde weg' : 'Fietspad'))}</b><br>
+    <small>OSM: surface=${esc(w.s || '?')}, smoothness=${esc(w.q || '?')}</small>
+    ${w.road ? `<br><small>${esc(w.hw)}${w.ms ? ', max ' + esc(w.ms) : ''}</small>` : ''}<br>
+    Ondergrond
+    <select id="ps">${opt(
+      {'':'onbekend', asphalt:'asfalt', other:'anders'},
+      x.s === 'asphalt' ? 'asphalt' : x.s ? 'other' : ''
+    )}</select><br>
+    Kwaliteit
+    <select id="pq">${opt({'':'onbekend', ...Q}, norm(x.q))}</select><br>
+    <input id="pn" placeholder="Notitie" value="${esc(m.note || '')}"><br>
+    <button onclick="saveLabel(${w.id})">Opslaan</button>
+    <button onclick="delLabel(${w.id})">Wis</button><br>
+    <a target="_blank" rel="noopener noreferrer"
+       href="https://www.openstreetmap.org/edit?way=${w.id}">Aanvullen in OSM ↗</a>`
+  ).openOn(map);
+}
+
+function saveLabel(id) {
+  const sf = $('ps').value;
+  const q = $('pq').value;
+  const n = $('pn').value.trim();
+
+  if (!sf && !q && !n) {
+    delete mine[id];
+  } else {
+    mine[id] = {surface:sf, smooth:q, note:n};
+  }
+
+  save();
+  ver++;
+  map.closePopup();
+  refresh();
+  stats();
+
+  if (wps.length) rebuild();
+}
+
+function delLabel(id) {
+  delete mine[id];
+  save();
+  ver++;
+  map.closePopup();
+  refresh();
+  stats();
+
+  if (wps.length) rebuild();
+}
+
+let rmode = false;
+let wps = [], hist = [], fut = [], marks = [], rc = [];
+let ver = 0;
+
+const rl = L.layerGroup().addTo(map);
+const isClosed = () => wps.length > 2 && wps[wps.length - 1] === wps[0];
+
+$('bRoute').onclick = () => {
+  rmode = !rmode;
+  $('bRoute').classList.toggle('on', rmode);
+
+  if (rmode) {
+    st('Tik punten op de kaart. Tik op het groene startpunt om een rondje te sluiten.');
+  }
+};
+
+function commit(n) {
+  hist.push(wps);
+  fut = [];
+  wps = n;
+  rebuild();
+}
+
+$('bUndo').onclick = () => {
+  if (hist.length) {
+    fut.push(wps);
+    wps = hist.pop();
+    rebuild();
+  }
+};
+
+$('bRedo').onclick = () => {
+  if (fut.length) {
+    hist.push(wps);
+    wps = fut.pop();
+    rebuild();
+  }
+};
+
+$('bBack').onclick = () => {
+  if (wps.length >= 2 && !isClosed()) {
+    commit([...wps, wps[0]]);
+  }
+};
+
+$('bClear').onclick = () => {
+  if (wps.length) commit([]);
+};
+
+map.on('click', e => {
+  if (rmode) addPoint(e.latlng);
+});
+
+function addPoint(ll) {
+  if (
+    wps.length >= 2 &&
+    !isClosed() &&
+    map.latLngToContainerPoint(wps[0])
+      .distanceTo(map.latLngToContainerPoint(ll)) < 26
+  ) {
+    commit([...wps, wps[0]]);
+    return;
+  }
+
+  commit([...wps, ll]);
+}
+
+function buttons() {
+  $('bUndo').disabled = !hist.length;
+  $('bRedo').disabled = !fut.length;
+  $('bBack').disabled = wps.length < 2 || isClosed();
+  $('bClear').disabled = !wps.length;
+}
+
+function drawMarkers() {
+  marks.forEach(m => map.removeLayer(m));
+  marks = [];
+
+  const closed = isClosed(), n = wps.length;
+
+  wps.forEach((p, i) => {
+    if (closed && i === n - 1) return;
+
+    const first = i === 0;
+    const last = i === n - 1 && !closed;
+
+    marks.push(
+      L.circleMarker(p, {
+        radius:first ? 10 : 7,
+        color:'#fff',
+        weight:3,
+        fillColor:first ? '#2e7d32' : last ? '#d81b60' : '#1976d2',
+        fillOpacity:1,
+        interactive:false
+      }).addTo(map)
+    );
+  });
+}
+
+function corridorKeys(a, b, km, chunks, pre) {
+  const {dy, dx} = IDX;
+  const pad = km / 111;
+  const cos = Math.cos(a.lat * Math.PI / 180);
+  const out = [];
+
+  const ax = a.lng * cos * 111, ay = a.lat * 111;
+  const vx = b.lng * cos * 111 - ax, vy = b.lat * 111 - ay;
+  const l2 = vx * vx + vy * vy || 1;
+
+  for (
+    let y = Math.floor((Math.min(a.lat, b.lat) - pad) / dy);
+    y <= Math.floor((Math.max(a.lat, b.lat) + pad) / dy);
+    y++
+  ) {
+    for (
+      let x = Math.floor((Math.min(a.lng, b.lng) - pad / cos) / dx);
+      x <= Math.floor((Math.max(a.lng, b.lng) + pad / cos) / dx);
+      x++
+    ) {
+      if (!chunks[y + '_' + x]) continue;
+
+      const px = (x + .5) * dx * cos * 111;
+      const py = (y + .5) * dy * 111;
+      const t = Math.max(
+        0,
+        Math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2)
+      );
+
+      if (Math.hypot(ax + t * vx - px, ay + t * vy - py) <= km) {
+        out.push(pre + y + '_' + x);
+      }
+    }
+  }
+
+  return out;
+}
+
+let rbusy = false, ragain = false;
+
+async function rebuild() {
+  if (rbusy) {
+    ragain = true;
+    return;
+  }
+
+  rbusy = true;
+
+  try {
+    do {
+      ragain = false;
+      await doRebuild();
+    } while (ragain);
+  } finally {
+    rbusy = false;
+  }
+}
+
+let G = null, Gsig = '';
+
+function getGraph() {
+  const sig = [
+    ways.size,
+    $('fs').value,
+    $('fq').value,
+    roadsOn,
+    ver
+  ].join('|');
+
+  if (G && sig === Gsig) return G;
+
+  const adj = new Map(), pos = new Map();
+  const K = p => p[0] + ',' + p[1];
+
+  const link = (a, b, d) => {
+    if (!adj.has(a)) adj.set(a, []);
+    adj.get(a).push([b, d]);
+  };
+
+  for (const w of ways.values()) {
+    if (!pass(w)) continue;
+
+    const g = w.geom;
+
+    for (let i = 0; i < g.length; i++) {
+      const k = K(g[i]);
+      pos.set(k, g[i]);
+
+      if (i) {
+        const k0 = K(g[i - 1]);
+        const d = map.distance(g[i - 1], g[i]);
+
+        link(k0, k, d);
+        link(k, k0, d);
+      }
+    }
+  }
+
+  Gsig = sig;
+  return G = {adj, pos, snaps:new Map(), segs:new Map()};
+}
+
+function snapNode(g, ll) {
+  const key = ll.lat + ',' + ll.lng;
+  if (g.snaps.has(key)) return g.snaps.get(key);
+
+  const cos = Math.cos(ll.lat * Math.PI / 180
