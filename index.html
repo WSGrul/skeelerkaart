@@ -1,899 +1,903 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Skeelerkaart Zuid-Holland</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-  <style>
-    html,body{height:100%;margin:0;font:14px system-ui,sans-serif}
-    body{display:flex;flex-direction:column}
-    #bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;background:#f4f6f8;border-bottom:1px solid #ccd}
-    #bar button,#bar select{font:inherit;padding:5px 8px;border:1px solid #99a;border-radius:6px;background:#fff}
-    #bar button.on{background:#1976d2;color:#fff;border-color:#1976d2}
-    #bar button{cursor:pointer}
-    #bar button:disabled{opacity:.4}
-    #map{flex:1;min-height:0}
-    .leaflet-popup-content input,.leaflet-popup-content select{margin:3px 0;font:inherit;max-width:100%}
-    .leaflet-popup-content button{margin:4px 4px 4px 0}
-    #st{flex-basis:100%;color:#333;min-height:1.2em}
-    .lg i{display:inline-block;width:18px;height:5px;margin:0 3px 2px 8px;border-radius:2px}
-    .lg .thin{height:2px;background:#555}
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Skeelerkaart Zuid-Holland</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+html,body{height:100%;margin:0;font:14px system-ui,sans-serif}
+body{display:flex;flex-direction:column}
+#bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;background:#f4f6f8;border-bottom:1px solid #ccd}
+#bar button,#bar select{font:inherit;padding:5px 8px;border:1px solid #99a;border-radius:6px;background:#fff}
+#bar button.on{background:#1976d2;color:#fff;border-color:#1976d2}
+#bar button{cursor:pointer}
+#bar button:disabled{opacity:.4}
+#map{flex:1;min-height:0}
+.leaflet-popup-content input,.leaflet-popup-content select{margin:3px 0;font:inherit;max-width:100%}
+.leaflet-popup-content button{margin:4px 4px 4px 0}
+#st{flex-basis:100%;color:#333;min-height:1.2em}
+.lg i{display:inline-block;width:18px;height:5px;margin:0 3px 2px 8px;border-radius:2px}
+.lg .thin{height:2px;background:#555}
+</style>
 </head>
 <body>
-  <div id="bar">
-    <b id="zl"></b>
+<div id="bar">
+  <b id="zl"></b>
 
-    <select id="fs">
-      <option value="all">Alle ondergronden</option>
-      <option value="plus">Asfalt + onbekend</option>
-      <option value="asphalt" selected>Alleen asfalt</option>
-    </select>
+  <select id="fs">
+    <option value="all">Alle ondergronden</option>
+    <option value="plus">Asfalt + onbekend</option>
+    <option value="asphalt" selected>Alleen asfalt</option>
+  </select>
 
-    <select id="fq">
-      <option value="0">Elke kwaliteit</option>
-      <option value="3">Goed of beter</option>
-      <option value="4">Alleen uitstekend</option>
-      <option value="unk">Kwaliteit onbekend</option>
-    </select>
+  <select id="fq">
+    <option value="0">Elke kwaliteit</option>
+    <option value="3">Goed of beter</option>
+    <option value="4">Alleen uitstekend</option>
+    <option value="unk">Kwaliteit onbekend</option>
+  </select>
 
-    <button id="bRoads" title="Gedeelde wegen tonen (vanaf zoom 12)">Wegen</button>
-    <button id="bRoute">Route maken</button>
-    <button id="bUndo" title="Ongedaan maken">↶</button>
-    <button id="bRedo" title="Opnieuw">↷</button>
-    <button id="bBack">Terug naar start</button>
-    <button id="bClear">Wis route</button>
-    <b id="ri"></b>
-    <button id="bGpx">GPX</button>
-    <button id="bExp">Export labels</button>
-    <button id="bImp">Import</button>
-    <input type="file" id="fImp" accept=".json" hidden>
+  <button id="bRoads" title="Gedeelde wegen tonen (vanaf zoom 12)">Wegen</button>
+  <button id="bRoute">Route maken</button>
+  <button id="bUndo" title="Ongedaan maken">↶</button>
+  <button id="bRedo" title="Opnieuw">↷</button>
+  <button id="bBack">Terug naar start</button>
+  <button id="bClear">Wis route</button>
+  <b id="ri"></b>
+  <button id="bGpx">GPX</button>
+  <button id="bExp">Export labels</button>
+  <button id="bImp">Import</button>
+  <input type="file" id="fImp" accept=".json" hidden>
 
-    <span class="lg">
-      <i style="background:#0a8a3a"></i>uitstekend
-      <i style="background:#7bc043"></i>goed
-      <i style="background:#f5a623"></i>matig
-      <i style="background:#d9381e"></i>slecht
-      <i style="background:repeating-linear-gradient(90deg,#7656a8 0 2px,transparent 2px 7px)"></i>oppervlak onbekend
-      <i style="background:repeating-linear-gradient(90deg,#555 0 8px,transparent 8px 13px)"></i>asfalt, kwaliteit onbekend
-      <i style="background:repeating-linear-gradient(90deg,#a07850 0 6px,transparent 6px 12px)"></i>geen asfalt*
-      <i class="thin"></i>dun = gedeelde weg
-      <small>* bij bekende kwaliteit: kwaliteitskleur, gestreept</small>
-    </span>
+  <span class="lg">
+    <i style="background:#0a8a3a"></i>uitstekend
+    <i style="background:#7bc043"></i>goed
+    <i style="background:#f5a623"></i>matig
+    <i style="background:#d9381e"></i>slecht
+    <i style="background:#555555"></i>asfalt, kwaliteit onbekend
+    <i style="background:repeating-linear-gradient(90deg,#7656a8 0 2px,transparent 2px 7px)"></i>oppervlak onbekend
+    <i style="background:repeating-linear-gradient(90deg,#a07850 0 6px,transparent 6px 12px)"></i>geen asfalt*
+    <i class="thin"></i>dun = gedeelde weg
+    <br>
+    <small>
+      Doorgetrokken = asfalt · gestippeld = oppervlak onbekend · gestreept = geen asfalt.
+      * Geen asfalt met bekende kwaliteit krijgt de kwaliteitskleur.
+    </small>
+  </span>
 
-    <div id="st">Data laden…</div>
-  </div>
+  <div id="st">Data laden…</div>
+</div>
 
-  <div id="map"></div>
+<div id="map"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-  <script>
-    const $ = id => document.getElementById(id);
-    const esc = s => String(s).replace(
-      /[&<>"']/g,
-      c => '&#' + c.charCodeAt(0) + ';'
-    );
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(
+  /[&<>"']/g,
+  c => '&#' + c.charCodeAt(0) + ';'
+);
 
-    const RANK = {
-      excellent:4,
-      good:3,
-      intermediate:2,
-      bad:1
-    };
+const RANK = {
+  excellent:4,
+  good:3,
+  intermediate:2,
+  bad:1
+};
 
-    const COL = {
-      excellent:'#0a8a3a',
-      good:'#7bc043',
-      intermediate:'#f5a623',
-      bad:'#d9381e',
-      unknown:'#7a7a7a'
-    };
+const COL = {
+  excellent:'#0a8a3a',
+  good:'#7bc043',
+  intermediate:'#f5a623',
+  bad:'#d9381e',
+  unknown:'#555555'
+};
 
-    const Q = {
-      excellent:'Uitstekend',
-      good:'Goed',
-      intermediate:'Matig',
-      bad:'Slecht'
-    };
+const Q = {
+  excellent:'Uitstekend',
+  good:'Goed',
+  intermediate:'Matig',
+  bad:'Slecht'
+};
 
-    const norm = s => RANK[s] ? s : (s ? 'bad' : '');
-    const MINZ = 11;
-    const MINZR = 12;
+const norm = s => RANK[s] ? s : (s ? 'bad' : '');
+const MINZ = 11;
+const MINZR = 12;
 
-    let roadsOn = false;
-    let mine = {};
+let roadsOn = false;
+let mine = {};
 
-    try {
-      mine = JSON.parse(localStorage.getItem('skeeler') || '{}');
-    } catch (e) {}
+try {
+  mine = JSON.parse(localStorage.getItem('skeeler') || '{}');
+} catch (e) {}
 
-    const save = () => {
-      try {
-        localStorage.setItem('skeeler', JSON.stringify(mine));
-      } catch (e) {}
-    };
+const save = () => {
+  try {
+    localStorage.setItem('skeeler', JSON.stringify(mine));
+  } catch (e) {}
+};
 
-    const eff = w => {
-      const m = mine[w.id] || {};
-      return {
-        s:m.surface || w.s,
-        q:m.smooth || w.q,
-        own:!!mine[w.id]
-      };
-    };
+const eff = w => {
+  const m = mine[w.id] || {};
+  return {
+    s:m.surface || w.s,
+    q:m.smooth || w.q,
+    own:!!mine[w.id]
+  };
+};
 
-    const st = t => {
-      $('st').textContent = t;
-    };
+const st = t => {
+  $('st').textContent = t;
+};
 
-    // Toon fouten ook in de statusbalk.
-    window.addEventListener('error', e => {
-      st('Scriptfout: ' + e.message);
-    });
+// Toon eventuele runtimefouten ook in de statusbalk.
+window.addEventListener('error', e => {
+  st('Scriptfout: ' + e.message);
+});
 
-    window.addEventListener('unhandledrejection', e => {
-      const message = e.reason && e.reason.message
-        ? e.reason.message
-        : String(e.reason);
-      st('Fout: ' + message);
-    });
+window.addEventListener('unhandledrejection', e => {
+  const message = e.reason && e.reason.message
+    ? e.reason.message
+    : String(e.reason);
+  st('Fout: ' + message);
+});
 
-    if (typeof L === 'undefined') {
-      st('Leaflet kon niet worden geladen. Controleer de verbinding met cdnjs.cloudflare.com.');
-      throw new Error('Leaflet ontbreekt.');
+if (typeof L === 'undefined') {
+  st('Leaflet kon niet worden geladen. Controleer de verbinding met cdnjs.cloudflare.com.');
+  throw new Error('Leaflet ontbreekt.');
+}
+
+// Start bij Leiden.
+const map = L.map('map', {
+  preferCanvas:true
+}).setView([52.16,4.49],13);
+
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19,
+  attribution:'© OpenStreetMap-bijdragers'
+}).addTo(map);
+
+let IDX = null;
+const ways = new Map();
+const got = new Set();
+const pending = new Set();
+
+function pass(w) {
+  if (w.road && !roadsOn) return false;
+
+  const e = eff(w);
+  const asphalt = e.s === 'asphalt';
+  const fs = $('fs').value;
+  const fq = $('fq').value;
+
+  if (fs === 'asphalt' && !asphalt) return false;
+  if (fs === 'plus' && !(asphalt || !e.s)) return false;
+  if (fq === 'unk') return !norm(e.q);
+  if (+fq && (RANK[norm(e.q)] || 0) < +fq) return false;
+
+  return true;
+}
+
+// Asfalt: altijd doorgetrokken.
+// Onbekend oppervlak: paars gestippeld.
+// Andere ondergrond: gestreept.
+function style(w) {
+  const e = eff(w);
+  const q = norm(e.q);
+  const unknownSurface = !e.s;
+  const asphalt = e.s === 'asphalt';
+
+  return {
+    color:unknownSurface
+      ? '#7656a8'
+      : q
+        ? COL[q]
+        : asphalt
+          ? '#555555'
+          : '#a07850',
+    weight:(w.road ? 3 : 5) + (e.own ? 2 : 0),
+    opacity:w.road ? .75 : .9,
+    dashArray:unknownSurface
+      ? '2 5'
+      : asphalt
+        ? null
+        : '6 6'
+  };
+}
+
+function refresh() {
+  for (const w of ways.values()) {
+    if (pass(w)) {
+      w.line.setStyle(style(w));
+      if (!map.hasLayer(w.line)) w.line.addTo(map);
+    } else if (map.hasLayer(w.line)) {
+      map.removeLayer(w.line);
     }
+  }
 
-    // Start bij Leiden.
-    const map = L.map('map', {
-      preferCanvas:true
-    }).setView([52.16,4.49],13);
-
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom:19,
-      attribution:'© OpenStreetMap-bijdragers'
-    }).addTo(map);
-
-    let IDX = null;
-    const ways = new Map();
-    const got = new Set();
-    const pending = new Set();
-
-    function pass(w) {
-      if (w.road && !roadsOn) return false;
-
-      const e = eff(w);
-      const as = e.s === 'asphalt';
-      const fs = $('fs').value;
-      const fq = $('fq').value;
-
-      if (fs === 'asphalt' && !as) return false;
-      if (fs === 'plus' && !(as || !e.s)) return false;
-      if (fq === 'unk') return !norm(e.q);
-      if (+fq && (RANK[norm(e.q)] || 0) < +fq) return false;
-
-      return true;
-    }
-
-    function style(w) {
-      const e = eff(w);
-      const q = norm(e.q);
-      const unknownSurface = !e.s;
-      const unknownAsphaltQuality = e.s === 'asphalt' && !q;
-      const other = e.s && e.s !== 'asphalt';
-
-      return {
-        color:unknownSurface
-          ? '#7656a8'
-          : unknownAsphaltQuality
-            ? '#555555'
-            : other && !q
-              ? '#a07850'
-              : COL[q || 'unknown'],
-        weight:(w.road ? 3 : 5) + (e.own ? 2 : 0),
-        opacity:w.road ? .75 : .9,
-        dashArray:unknownSurface
-          ? '2 5'
-          : unknownAsphaltQuality
-            ? '8 5'
-            : other
-              ? '6 6'
-              : null
-      };
-    }
-
-    function refresh() {
-      for (const w of ways.values()) {
-        if (pass(w)) {
-          w.line.setStyle(style(w));
-          if (!map.hasLayer(w.line)) w.line.addTo(map);
-        } else if (map.hasLayer(w.line)) {
-          map.removeLayer(w.line);
-        }
+  if (roadsOn) {
+    for (const w of ways.values()) {
+      if (!w.road && map.hasLayer(w.line)) {
+        w.line.bringToFront();
       }
+    }
+  }
+}
+
+function stats() {
+  if (!IDX) return;
+
+  let a = 0, q = 0, r = 0;
+
+  for (const w of ways.values()) {
+    if (w.road) {
+      r++;
+      continue;
+    }
+
+    const e = eff(w);
+    if (e.s === 'asphalt') {
+      a++;
+      if (e.q) q++;
+    }
+  }
+
+  st(
+    `${ways.size - r} paden${r ? ` + ${r} wegen` : ''} geladen · ` +
+    `${a} asfalt, waarvan ${q} met kwaliteit · ` +
+    `data van ${IDX.updated || 'onbekende datum'}`
+  );
+}
+
+function addWays(list) {
+  for (const [id,hw,s,q,name,flat,ms] of list) {
+    if (ways.has(id)) continue;
+
+    const g = [];
+    for (let i = 0; i < flat.length; i += 2) {
+      g.push([flat[i],flat[i + 1]]);
+    }
+
+    const w = {
+      id,hw,s,q,name,ms,
+      road:!'cpf'.includes(hw),
+      geom:g,
+      line:L.polyline(g, {
+        bubblingMouseEvents:false
+      })
+    };
+
+    w.line.on('click', e => onWay(w,e));
+    ways.set(id,w);
+  }
+}
+
+async function loadKeys(keys,label) {
+  let i = 0, n = 0, fail = 0;
+
+  const worker = async () => {
+    while (i < keys.length) {
+      const k = keys[i++];
+      pending.add(k);
+
+      try {
+        // Relatief aan index.html op GitHub Pages.
+        const r = await fetch('data/' + k + '.json');
+
+        if (!r.ok) {
+          throw new Error(`HTTP ${r.status}: data/${k}.json`);
+        }
+
+        addWays((await r.json()).w);
+        got.add(k);
+      } catch (e) {
+        console.error('Datablok laden mislukt:', k, e);
+        fail++;
+      }
+
+      pending.delete(k);
+      n++;
+
+      if (label) st(`${label} ${n}/${keys.length}…`);
+    }
+  };
+
+  await Promise.all([
+    worker(),worker(),worker(),worker()
+  ]);
+
+  return fail;
+}
+
+function visibleKeys(chunks,pre) {
+  const b = map.getBounds();
+  const {dy,dx} = IDX;
+  const out = [];
+
+  for (
+    let y = Math.floor(b.getSouth() / dy);
+    y <= Math.floor(b.getNorth() / dy);
+    y++
+  ) {
+    for (
+      let x = Math.floor(b.getWest() / dx);
+      x <= Math.floor(b.getEast() / dx);
+      x++
+    ) {
+      const k = pre + y + '_' + x;
+
+      if (
+        chunks[y + '_' + x] &&
+        !got.has(k) &&
+        !pending.has(k)
+      ) {
+        out.push(k);
+      }
+    }
+  }
+
+  return out;
+}
+
+async function loadVisible() {
+  if (!IDX) return;
+
+  const z = map.getZoom();
+
+  if (z < MINZ) {
+    st(`Zoom in (niveau ${MINZ}+) om paden te tonen.`);
+    return;
+  }
+
+  const todo = visibleKeys(IDX.chunks,'');
+
+  if (roadsOn && z >= MINZR) {
+    todo.push(...visibleKeys(IDX.rchunks,'r/'));
+  }
+
+  if (!todo.length) {
+    if (pending.size) {
+      st('Datablokken laden…');
+    } else if (ways.size) {
+      stats();
+    } else {
+      st('Data-index geladen, maar geen datablokken gevonden voor dit kaartgebied.');
+    }
+    return;
+  }
+
+  const fail = await loadKeys(todo,'Data laden');
+  refresh();
+  stats();
+
+  if (fail) {
+    st(`${fail} datablok(ken) konden niet geladen worden. Zie de console.`);
+  }
+}
+
+$('bRoads').onclick = () => {
+  roadsOn = !roadsOn;
+  $('bRoads').classList.toggle('on',roadsOn);
+
+  if (roadsOn && map.getZoom() < MINZR) {
+    st(`Zoom in (niveau ${MINZR}+) om wegen te laden.`);
+  }
+
+  refresh();
+  loadVisible();
+  if (wps.length) rebuild();
+};
+
+function onWay(w,e) {
+  if (rmode) {
+    addPoint(e.latlng);
+    return;
+  }
+
+  const x = eff(w);
+  const m = mine[w.id] || {};
+
+  const opt = (o,v) => Object.entries(o)
+    .map(([k,l]) =>
+      `<option value="${k}"${k === v ? ' selected' : ''}>${l}</option>`
+    )
+    .join('');
+
+  L.popup().setLatLng(e.latlng).setContent(
+    `<b>${esc(w.name || (w.road ? 'Gedeelde weg' : 'Fietspad'))}</b><br>
+    <small>OSM: surface=${esc(w.s || '?')}, smoothness=${esc(w.q || '?')}</small>
+    ${w.road
+      ? `<br><small>${esc(w.hw)}${w.ms ? ', max ' + esc(w.ms) : ''}</small>`
+      : ''}<br>
+    Ondergrond
+    <select id="ps">${opt(
+      {'':'onbekend',asphalt:'asfalt',other:'anders'},
+      x.s === 'asphalt' ? 'asphalt' : x.s ? 'other' : ''
+    )}</select><br>
+    Kwaliteit
+    <select id="pq">${opt({'':'onbekend',...Q},norm(x.q))}</select><br>
+    <input id="pn" placeholder="Notitie" value="${esc(m.note || '')}"><br>
+    <button onclick="saveLabel(${w.id})">Opslaan</button>
+    <button onclick="delLabel(${w.id})">Wis</button><br>
+    <a target="_blank" rel="noopener noreferrer"
+       href="https://www.openstreetmap.org/edit?way=${w.id}">Aanvullen in OSM ↗</a>`
+  ).openOn(map);
+}
+
+function saveLabel(id) {
+  const sf = $('ps').value;
+  const q = $('pq').value;
+  const n = $('pn').value.trim();
+
+  if (!sf && !q && !n) {
+    delete mine[id];
+  } else {
+    mine[id] = {surface:sf,smooth:q,note:n};
+  }
+
+  save();
+  ver++;
+  map.closePopup();
+  refresh();
+  stats();
+  if (wps.length) rebuild();
+}
+
+function delLabel(id) {
+  delete mine[id];
+  save();
+  ver++;
+  map.closePopup();
+  refresh();
+  stats();
+  if (wps.length) rebuild();
+}
+
+let rmode = false;
+let wps = [], hist = [], fut = [], marks = [], rc = [];
+let ver = 0;
+
+const rl = L.layerGroup().addTo(map);
+const isClosed = () =>
+  wps.length > 2 && wps[wps.length - 1] === wps[0];
+
+$('bRoute').onclick = () => {
+  rmode = !rmode;
+  $('bRoute').classList.toggle('on',rmode);
+
+  if (rmode) {
+    st('Tik punten op de kaart. Tik op het groene startpunt om een rondje te sluiten.');
+  }
+};
+
+function commit(n) {
+  hist.push(wps);
+  fut = [];
+  wps = n;
+  rebuild();
+}
+
+$('bUndo').onclick = () => {
+  if (hist.length) {
+    fut.push(wps);
+    wps = hist.pop();
+    rebuild();
+  }
+};
+
+$('bRedo').onclick = () => {
+  if (fut.length) {
+    hist.push(wps);
+    wps = fut.pop();
+    rebuild();
+  }
+};
+
+$('bBack').onclick = () => {
+  if (wps.length >= 2 && !isClosed()) {
+    commit([...wps,wps[0]]);
+  }
+};
+
+$('bClear').onclick = () => {
+  if (wps.length) commit([]);
+};
+
+map.on('click', e => {
+  if (rmode) addPoint(e.latlng);
+});
+
+function addPoint(ll) {
+  if (
+    wps.length >= 2 &&
+    !isClosed() &&
+    map.latLngToContainerPoint(wps[0])
+      .distanceTo(map.latLngToContainerPoint(ll)) < 26
+  ) {
+    commit([...wps,wps[0]]);
+    return;
+  }
+
+  commit([...wps,ll]);
+}
+
+function buttons() {
+  $('bUndo').disabled = !hist.length;
+  $('bRedo').disabled = !fut.length;
+  $('bBack').disabled = wps.length < 2 || isClosed();
+  $('bClear').disabled = !wps.length;
+}
+
+function drawMarkers() {
+  marks.forEach(m => map.removeLayer(m));
+  marks = [];
+
+  const closed = isClosed();
+  const n = wps.length;
+
+  wps.forEach((p,i) => {
+    if (closed && i === n - 1) return;
+
+    const first = i === 0;
+    const last = i === n - 1 && !closed;
+
+    marks.push(
+      L.circleMarker(p, {
+        radius:first ? 10 : 7,
+        color:'#fff',
+        weight:3,
+        fillColor:first
+          ? '#2e7d32'
+          : last ? '#d81b60' : '#1976d2',
+        fillOpacity:1,
+        interactive:false
+      }).addTo(map)
+    );
+  });
+}
+
+function corridorKeys(a,b,km,chunks,pre) {
+  const {dy,dx} = IDX;
+  const pad = km / 111;
+  const cos = Math.cos(a.lat * Math.PI / 180);
+  const out = [];
+
+  const ax = a.lng * cos * 111;
+  const ay = a.lat * 111;
+  const vx = b.lng * cos * 111 - ax;
+  const vy = b.lat * 111 - ay;
+  const l2 = vx * vx + vy * vy || 1;
+
+  for (
+    let y = Math.floor((Math.min(a.lat,b.lat) - pad) / dy);
+    y <= Math.floor((Math.max(a.lat,b.lat) + pad) / dy);
+    y++
+  ) {
+    for (
+      let x = Math.floor((Math.min(a.lng,b.lng) - pad / cos) / dx);
+      x <= Math.floor((Math.max(a.lng,b.lng) + pad / cos) / dx);
+      x++
+    ) {
+      if (!chunks[y + '_' + x]) continue;
+
+      const px = (x + .5) * dx * cos * 111;
+      const py = (y + .5) * dy * 111;
+      const t = Math.max(
+        0,
+        Math.min(1,((px - ax) * vx + (py - ay) * vy) / l2)
+      );
+
+      if (Math.hypot(ax + t * vx - px,ay + t * vy - py) <= km) {
+        out.push(pre + y + '_' + x);
+      }
+    }
+  }
+
+  return out;
+}
+
+let rbusy = false;
+let ragain = false;
+
+async function rebuild() {
+  if (rbusy) {
+    ragain = true;
+    return;
+  }
+
+  rbusy = true;
+
+  try {
+    do {
+      ragain = false;
+      await doRebuild();
+    } while (ragain);
+  } finally {
+    rbusy = false;
+  }
+}
+
+let G = null;
+let Gsig = '';
+
+function getGraph() {
+  const sig = [
+    ways.size,
+    $('fs').value,
+    $('fq').value,
+    roadsOn,
+    ver
+  ].join('|');
+
+  if (G && sig === Gsig) return G;
+
+  const adj = new Map();
+  const pos = new Map();
+  const K = p => p[0] + ',' + p[1];
+
+  const link = (a,b,d) => {
+    if (!adj.has(a)) adj.set(a,[]);
+    adj.get(a).push([b,d]);
+  };
+
+  for (const w of ways.values()) {
+    if (!pass(w)) continue;
+
+    const g = w.geom;
+
+    for (let i = 0; i < g.length; i++) {
+      const k = K(g[i]);
+      pos.set(k,g[i]);
+
+      if (i) {
+        const k0 = K(g[i - 1]);
+        const d = map.distance(g[i - 1],g[i]);
+
+        link(k0,k,d);
+        link(k,k0,d);
+      }
+    }
+  }
+
+  Gsig = sig;
+  return G = {
+    adj,
+    pos,
+    snaps:new Map(),
+    segs:new Map()
+  };
+}
+
+function snapNode(g,ll) {
+  const key = ll.lat + ',' + ll.lng;
+  if (g.snaps.has(key)) return g.snaps.get(key);
+
+  const cos = Math.cos(ll.lat * Math.PI / 180);
+  let best = null;
+  let bd = Infinity;
+
+  for (const [n,p] of g.pos) {
+    const dy = p[0] - ll.lat;
+    const dx = (p[1] - ll.lng) * cos;
+    const d = dx * dx + dy * dy;
+
+    if (d < bd) {
+      bd = d;
+      best = n;
+    }
+  }
+
+  const r = Math.sqrt(bd) * 111000 < 400 ? best : null;
+  g.snaps.set(key,r);
+  return r;
+}
+
+async function doRebuild() {
+  drawMarkers();
+  buttons();
+  rl.clearLayers();
+  rc = [];
+
+  if (!wps.length) {
+    $('ri').textContent = '';
+    return;
+  }
+
+  if (wps.length === 1) {
+    $('ri').textContent = 'Kies een volgend punt';
+  }
+
+  if (IDX) {
+    const need = new Set();
+
+    wps.forEach((p,i) => {
+      const a = wps[i - 1] || p;
+
+      corridorKeys(a,p,12,IDX.chunks,'')
+        .forEach(k => need.add(k));
 
       if (roadsOn) {
-        for (const w of ways.values()) {
-          if (!w.road && map.hasLayer(w.line)) {
-            w.line.bringToFront();
-          }
-        }
+        corridorKeys(a,p,12,IDX.rchunks,'r/')
+          .forEach(k => need.add(k));
       }
-    }
-
-    function stats() {
-      if (!IDX) return;
-
-      let a = 0, q = 0, r = 0;
-
-      for (const w of ways.values()) {
-        if (w.road) {
-          r++;
-          continue;
-        }
-
-        const e = eff(w);
-        if (e.s === 'asphalt') {
-          a++;
-          if (e.q) q++;
-        }
-      }
-
-      st(
-        `${ways.size - r} paden${r ? ` + ${r} wegen` : ''} geladen · ` +
-        `${a} asfalt, waarvan ${q} met kwaliteit · ` +
-        `data van ${IDX.updated || 'onbekende datum'}`
-      );
-    }
-
-    function addWays(list) {
-      for (const [id,hw,s,q,name,flat,ms] of list) {
-        if (ways.has(id)) continue;
-
-        const g = [];
-        for (let i = 0; i < flat.length; i += 2) {
-          g.push([flat[i],flat[i + 1]]);
-        }
-
-        const w = {
-          id,hw,s,q,name,ms,
-          road:!'cpf'.includes(hw),
-          geom:g,
-          line:L.polyline(g, {
-            bubblingMouseEvents:false
-          })
-        };
-
-        w.line.on('click', e => onWay(w,e));
-        ways.set(id,w);
-      }
-    }
-
-    async function loadKeys(keys,label) {
-      let i = 0, n = 0, fail = 0;
-
-      const worker = async () => {
-        while (i < keys.length) {
-          const k = keys[i++];
-          pending.add(k);
-
-          try {
-            // Relatief aan index.html op GitHub Pages.
-            const r = await fetch('data/' + k + '.json');
-
-            if (!r.ok) {
-              throw new Error(`HTTP ${r.status}: data/${k}.json`);
-            }
-
-            addWays((await r.json()).w);
-            got.add(k);
-          } catch (e) {
-            console.error('Datablok laden mislukt:', k, e);
-            fail++;
-          }
-
-          pending.delete(k);
-          n++;
-
-          if (label) st(`${label} ${n}/${keys.length}…`);
-        }
-      };
-
-      await Promise.all([
-        worker(),worker(),worker(),worker()
-      ]);
-
-      return fail;
-    }
-
-    function visibleKeys(chunks,pre) {
-      const b = map.getBounds();
-      const {dy,dx} = IDX;
-      const out = [];
-
-      for (
-        let y = Math.floor(b.getSouth() / dy);
-        y <= Math.floor(b.getNorth() / dy);
-        y++
-      ) {
-        for (
-          let x = Math.floor(b.getWest() / dx);
-          x <= Math.floor(b.getEast() / dx);
-          x++
-        ) {
-          const k = pre + y + '_' + x;
-
-          if (
-            chunks[y + '_' + x] &&
-            !got.has(k) &&
-            !pending.has(k)
-          ) {
-            out.push(k);
-          }
-        }
-      }
-
-      return out;
-    }
-
-    async function loadVisible() {
-      if (!IDX) return;
-
-      const z = map.getZoom();
-
-      if (z < MINZ) {
-        st(`Zoom in (niveau ${MINZ}+) om paden te tonen.`);
-        return;
-      }
-
-      const todo = visibleKeys(IDX.chunks,'');
-
-      if (roadsOn && z >= MINZR) {
-        todo.push(...visibleKeys(IDX.rchunks,'r/'));
-      }
-
-      if (!todo.length) {
-        if (pending.size) {
-          st('Datablokken laden…');
-        } else if (ways.size) {
-          stats();
-        } else {
-          st('Data-index geladen, maar geen datablokken gevonden voor dit kaartgebied.');
-        }
-        return;
-      }
-
-      const fail = await loadKeys(todo,'Data laden');
-      refresh();
-      stats();
-
-      if (fail) {
-        st(`${fail} datablok(ken) konden niet geladen worden. Zie de console.`);
-      }
-    }
-
-    $('bRoads').onclick = () => {
-      roadsOn = !roadsOn;
-      $('bRoads').classList.toggle('on',roadsOn);
-
-      if (roadsOn && map.getZoom() < MINZR) {
-        st(`Zoom in (niveau ${MINZR}+) om wegen te laden.`);
-      }
-
-      refresh();
-      loadVisible();
-      if (wps.length) rebuild();
-    };
-
-    function onWay(w,e) {
-      if (rmode) {
-        addPoint(e.latlng);
-        return;
-      }
-
-      const x = eff(w);
-      const m = mine[w.id] || {};
-
-      const opt = (o,v) => Object.entries(o)
-        .map(([k,l]) =>
-          `<option value="${k}"${k === v ? ' selected' : ''}>${l}</option>`
-        )
-        .join('');
-
-      L.popup().setLatLng(e.latlng).setContent(
-        `<b>${esc(w.name || (w.road ? 'Gedeelde weg' : 'Fietspad'))}</b><br>
-        <small>OSM: surface=${esc(w.s || '?')}, smoothness=${esc(w.q || '?')}</small>
-        ${w.road
-          ? `<br><small>${esc(w.hw)}${w.ms ? ', max ' + esc(w.ms) : ''}</small>`
-          : ''}<br>
-        Ondergrond
-        <select id="ps">${opt(
-          {'':'onbekend',asphalt:'asfalt',other:'anders'},
-          x.s === 'asphalt' ? 'asphalt' : x.s ? 'other' : ''
-        )}</select><br>
-        Kwaliteit
-        <select id="pq">${opt({'':'onbekend',...Q},norm(x.q))}</select><br>
-        <input id="pn" placeholder="Notitie" value="${esc(m.note || '')}"><br>
-        <button onclick="saveLabel(${w.id})">Opslaan</button>
-        <button onclick="delLabel(${w.id})">Wis</button><br>
-        <a target="_blank" rel="noopener noreferrer"
-           href="https://www.openstreetmap.org/edit?way=${w.id}">Aanvullen in OSM ↗</a>`
-      ).openOn(map);
-    }
-
-    function saveLabel(id) {
-      const sf = $('ps').value;
-      const q = $('pq').value;
-      const n = $('pn').value.trim();
-
-      if (!sf && !q && !n) {
-        delete mine[id];
-      } else {
-        mine[id] = {surface:sf,smooth:q,note:n};
-      }
-
-      save();
-      ver++;
-      map.closePopup();
-      refresh();
-      stats();
-      if (wps.length) rebuild();
-    }
-
-    function delLabel(id) {
-      delete mine[id];
-      save();
-      ver++;
-      map.closePopup();
-      refresh();
-      stats();
-      if (wps.length) rebuild();
-    }
-
-    let rmode = false;
-    let wps = [], hist = [], fut = [], marks = [], rc = [];
-    let ver = 0;
-
-    const rl = L.layerGroup().addTo(map);
-    const isClosed = () =>
-      wps.length > 2 && wps[wps.length - 1] === wps[0];
-
-    $('bRoute').onclick = () => {
-      rmode = !rmode;
-      $('bRoute').classList.toggle('on',rmode);
-
-      if (rmode) {
-        st('Tik punten op de kaart. Tik op het groene startpunt om een rondje te sluiten.');
-      }
-    };
-
-    function commit(n) {
-      hist.push(wps);
-      fut = [];
-      wps = n;
-      rebuild();
-    }
-
-    $('bUndo').onclick = () => {
-      if (hist.length) {
-        fut.push(wps);
-        wps = hist.pop();
-        rebuild();
-      }
-    };
-
-    $('bRedo').onclick = () => {
-      if (fut.length) {
-        hist.push(wps);
-        wps = fut.pop();
-        rebuild();
-      }
-    };
-
-    $('bBack').onclick = () => {
-      if (wps.length >= 2 && !isClosed()) {
-        commit([...wps,wps[0]]);
-      }
-    };
-
-    $('bClear').onclick = () => {
-      if (wps.length) commit([]);
-    };
-
-    map.on('click', e => {
-      if (rmode) addPoint(e.latlng);
     });
 
-    function addPoint(ll) {
-      if (
-        wps.length >= 2 &&
-        !isClosed() &&
-        map.latLngToContainerPoint(wps[0])
-          .distanceTo(map.latLngToContainerPoint(ll)) < 26
-      ) {
-        commit([...wps,wps[0]]);
-        return;
-      }
+    const keys = [...need]
+      .filter(k => !got.has(k) && !pending.has(k));
 
-      commit([...wps,ll]);
+    if (keys.length) {
+      const fail = await loadKeys(keys,'Routedata laden');
+      refresh();
+      stats();
+      if (fail) st(`${fail} datablokken ontbraken`);
+    }
+  }
+
+  if (wps.length < 2) return;
+
+  const g = getGraph();
+  const nodes = wps.map(p => snapNode(g,p));
+  let total = 0;
+  const segs = [];
+  const miss = [];
+
+  for (let i = 1; i < wps.length; i++) {
+    const a = nodes[i - 1];
+    const b = nodes[i];
+
+    if (a === null || b === null) {
+      miss.push([wps[i - 1],wps[i]]);
+      continue;
     }
 
-    function buttons() {
-      $('bUndo').disabled = !hist.length;
-      $('bRedo').disabled = !fut.length;
-      $('bBack').disabled = wps.length < 2 || isClosed();
-      $('bClear').disabled = !wps.length;
+    if (a === b) continue;
+
+    const ck = a + '>' + b;
+    let r = g.segs.get(ck);
+
+    if (r === undefined) {
+      r = dijkstra(g.adj,a,b);
+      g.segs.set(ck,r);
     }
 
-    function drawMarkers() {
-      marks.forEach(m => map.removeLayer(m));
-      marks = [];
-
-      const closed = isClosed();
-      const n = wps.length;
-
-      wps.forEach((p,i) => {
-        if (closed && i === n - 1) return;
-
-        const first = i === 0;
-        const last = i === n - 1 && !closed;
-
-        marks.push(
-          L.circleMarker(p, {
-            radius:first ? 10 : 7,
-            color:'#fff',
-            weight:3,
-            fillColor:first
-              ? '#2e7d32'
-              : last ? '#d81b60' : '#1976d2',
-            fillOpacity:1,
-            interactive:false
-          }).addTo(map)
-        );
-      });
+    if (!r) {
+      miss.push([wps[i - 1],wps[i]]);
+      continue;
     }
 
-    function corridorKeys(a,b,km,chunks,pre) {
-      const {dy,dx} = IDX;
-      const pad = km / 111;
-      const cos = Math.cos(a.lat * Math.PI / 180);
-      const out = [];
+    total += r.d;
+    const c = r.path.map(n => g.pos.get(n));
+    segs.push(c);
 
-      const ax = a.lng * cos * 111;
-      const ay = a.lat * 111;
-      const vx = b.lng * cos * 111 - ax;
-      const vy = b.lat * 111 - ay;
-      const l2 = vx * vx + vy * vy || 1;
+    for (const q of c) rc.push(q);
+  }
 
-      for (
-        let y = Math.floor((Math.min(a.lat,b.lat) - pad) / dy);
-        y <= Math.floor((Math.max(a.lat,b.lat) + pad) / dy);
-        y++
-      ) {
-        for (
-          let x = Math.floor((Math.min(a.lng,b.lng) - pad / cos) / dx);
-          x <= Math.floor((Math.max(a.lng,b.lng) + pad / cos) / dx);
-          x++
-        ) {
-          if (!chunks[y + '_' + x]) continue;
+  segs.forEach(c => {
+    L.polyline(c, {
+      color:'#1565c0',
+      weight:8,
+      opacity:.65,
+      interactive:false
+    }).addTo(rl);
+  });
 
-          const px = (x + .5) * dx * cos * 111;
-          const py = (y + .5) * dy * 111;
-          const t = Math.max(
-            0,
-            Math.min(1,((px - ax) * vx + (py - ay) * vy) / l2)
-          );
+  miss.forEach(m => {
+    L.polyline(m, {
+      color:'#d32f2f',
+      weight:3,
+      dashArray:'6 6',
+      interactive:false
+    }).addTo(rl);
+  });
 
-          if (Math.hypot(ax + t * vx - px,ay + t * vy - py) <= km) {
-            out.push(pre + y + '_' + x);
-          }
-        }
-      }
+  $('ri').textContent =
+    (isClosed() ? 'Rondje ' : 'Route ') +
+    (total / 1000).toFixed(1).replace('.',',') +
+    ' km · ' +
+    (isClosed() ? wps.length - 1 : wps.length) +
+    ' punten' +
+    (miss.length
+      ? ` · ${miss.length} stuk(ken) zonder verbinding (rood)`
+      : '');
 
-      return out;
+  if (miss.length) {
+    st('Rode stippellijn: geen pad gevonden dat door je filters komt, of een punt ligt te ver van een pad.');
+  }
+}
+
+function dijkstra(adj,s,t) {
+  const dist = new Map([[s,0]]);
+  const prev = new Map();
+  const h = [[0,s]];
+
+  const push = x => {
+    h.push(x);
+    let i = h.length - 1;
+
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (h[p][0] <= h[i][0]) break;
+
+      [h[p],h[i]] = [h[i],h[p]];
+      i = p;
     }
+  };
 
-    let rbusy = false;
-    let ragain = false;
+  const pop = () => {
+    const top = h[0];
+    const last = h.pop();
 
-    async function rebuild() {
-      if (rbusy) {
-        ragain = true;
-        return;
-      }
+    if (h.length) {
+      h[0] = last;
+      let i = 0;
 
-      rbusy = true;
+      for (;;) {
+        const l = 2 * i + 1;
+        const r = l + 1;
+        let m = i;
 
-      try {
-        do {
-          ragain = false;
-          await doRebuild();
-        } while (ragain);
-      } finally {
-        rbusy = false;
-      }
-    }
+        if (l < h.length && h[l][0] < h[m][0]) m = l;
+        if (r < h.length && h[r][0] < h[m][0]) m = r;
+        if (m === i) break;
 
-    let G = null;
-    let Gsig = '';
-
-    function getGraph() {
-      const sig = [
-        ways.size,
-        $('fs').value,
-        $('fq').value,
-        roadsOn,
-        ver
-      ].join('|');
-
-      if (G && sig === Gsig) return G;
-
-      const adj = new Map();
-      const pos = new Map();
-      const K = p => p[0] + ',' + p[1];
-
-      const link = (a,b,d) => {
-        if (!adj.has(a)) adj.set(a,[]);
-        adj.get(a).push([b,d]);
-      };
-
-      for (const w of ways.values()) {
-        if (!pass(w)) continue;
-
-        const g = w.geom;
-
-        for (let i = 0; i < g.length; i++) {
-          const k = K(g[i]);
-          pos.set(k,g[i]);
-
-          if (i) {
-            const k0 = K(g[i - 1]);
-            const d = map.distance(g[i - 1],g[i]);
-
-            link(k0,k,d);
-            link(k,k0,d);
-          }
-        }
-      }
-
-      Gsig = sig;
-      return G = {
-        adj,
-        pos,
-        snaps:new Map(),
-        segs:new Map()
-      };
-    }
-
-    function snapNode(g,ll) {
-      const key = ll.lat + ',' + ll.lng;
-      if (g.snaps.has(key)) return g.snaps.get(key);
-
-      const cos = Math.cos(ll.lat * Math.PI / 180);
-      let best = null;
-      let bd = Infinity;
-
-      for (const [n,p] of g.pos) {
-        const dy = p[0] - ll.lat;
-        const dx = (p[1] - ll.lng) * cos;
-        const d = dx * dx + dy * dy;
-
-        if (d < bd) {
-          bd = d;
-          best = n;
-        }
-      }
-
-      const r = Math.sqrt(bd) * 111000 < 400 ? best : null;
-      g.snaps.set(key,r);
-      return r;
-    }
-
-    async function doRebuild() {
-      drawMarkers();
-      buttons();
-      rl.clearLayers();
-      rc = [];
-
-      if (!wps.length) {
-        $('ri').textContent = '';
-        return;
-      }
-
-      if (wps.length === 1) {
-        $('ri').textContent = 'Kies een volgend punt';
-      }
-
-      if (IDX) {
-        const need = new Set();
-
-        wps.forEach((p,i) => {
-          const a = wps[i - 1] || p;
-
-          corridorKeys(a,p,12,IDX.chunks,'')
-            .forEach(k => need.add(k));
-
-          if (roadsOn) {
-            corridorKeys(a,p,12,IDX.rchunks,'r/')
-              .forEach(k => need.add(k));
-          }
-        });
-
-        const keys = [...need]
-          .filter(k => !got.has(k) && !pending.has(k));
-
-        if (keys.length) {
-          const fail = await loadKeys(keys,'Routedata laden');
-          refresh();
-          stats();
-          if (fail) st(`${fail} datablokken ontbraken`);
-        }
-      }
-
-      if (wps.length < 2) return;
-
-      const g = getGraph();
-      const nodes = wps.map(p => snapNode(g,p));
-      let total = 0;
-      const segs = [];
-      const miss = [];
-
-      for (let i = 1; i < wps.length; i++) {
-        const a = nodes[i - 1];
-        const b = nodes[i];
-
-        if (a === null || b === null) {
-          miss.push([wps[i - 1],wps[i]]);
-          continue;
-        }
-
-        if (a === b) continue;
-
-        const ck = a + '>' + b;
-        let r = g.segs.get(ck);
-
-        if (r === undefined) {
-          r = dijkstra(g.adj,a,b);
-          g.segs.set(ck,r);
-        }
-
-        if (!r) {
-          miss.push([wps[i - 1],wps[i]]);
-          continue;
-        }
-
-        total += r.d;
-        const c = r.path.map(n => g.pos.get(n));
-        segs.push(c);
-
-        for (const q of c) rc.push(q);
-      }
-
-      segs.forEach(c => {
-        L.polyline(c, {
-          color:'#1565c0',
-          weight:8,
-          opacity:.65,
-          interactive:false
-        }).addTo(rl);
-      });
-
-      miss.forEach(m => {
-        L.polyline(m, {
-          color:'#d32f2f',
-          weight:3,
-          dashArray:'6 6',
-          interactive:false
-        }).addTo(rl);
-      });
-
-      $('ri').textContent =
-        (isClosed() ? 'Rondje ' : 'Route ') +
-        (total / 1000).toFixed(1).replace('.',',') +
-        ' km · ' +
-        (isClosed() ? wps.length - 1 : wps.length) +
-        ' punten' +
-        (miss.length
-          ? ` · ${miss.length} stuk(ken) zonder verbinding (rood)`
-          : '');
-
-      if (miss.length) {
-        st('Rode stippellijn: geen pad gevonden dat door je filters komt, of een punt ligt te ver van een pad.');
+        [h[m],h[i]] = [h[i],h[m]];
+        i = m;
       }
     }
 
-    function dijkstra(adj,s,t) {
-      const dist = new Map([[s,0]]);
-      const prev = new Map();
-      const h = [[0,s]];
+    return top;
+  };
 
-      const push = x => {
-        h.push(x);
-        let i = h.length - 1;
+  while (h.length) {
+    const [d,u] = pop();
+    if (u === t) break;
+    if (d > dist.get(u)) continue;
 
-        while (i > 0) {
-          const p = (i - 1) >> 1;
-          if (h[p][0] <= h[i][0]) break;
+    for (const [v,c] of adj.get(u) || []) {
+      const nd = d + c;
 
-          [h[p],h[i]] = [h[i],h[p]];
-          i = p;
-        }
-      };
-
-      const pop = () => {
-        const top = h[0];
-        const last = h.pop();
-
-        if (h.length) {
-          h[0] = last;
-          let i = 0;
-
-          for (;;) {
-            const l = 2 * i + 1;
-            const r = l + 1;
-            let m = i;
-
-            if (l < h.length && h[l][0] < h[m][0]) m = l;
-            if (r < h.length && h[r][0] < h[m][0]) m = r;
-            if (m === i) break;
-
-            [h[m],h[i]] = [h[i],h[m]];
-            i = m;
-          }
-        }
-
-        return top;
-      };
-
-      while (h.length) {
-        const [d,u] = pop();
-        if (u === t) break;
-        if (d > dist.get(u)) continue;
-
-        for (const [v,c] of adj.get(u) || []) {
-          const nd = d + c;
-
-          if (nd < (dist.has(v) ? dist.get(v) : Infinity)) {
-            dist.set(v,nd);
-            prev.set(v,u);
-            push([nd,v]);
-          }
-        }
+      if (nd < (dist.has(v) ? dist.get(v) : Infinity)) {
+        dist.set(v,nd);
+        prev.set(v,u);
+        push([nd,v]);
       }
-
-      if (!dist.has(t)) return null;
-
-      const path = [];
-
-      for (let u = t; u !== undefined; u = prev.get(u)) {
-        path.push(u);
-      }
-
-      return {path:path.reverse(),d:dist.get(t)};
     }
+  }
 
-    function dl(name,txt,type) {
-      const a = document.createElement('a');
-      const url = URL.createObjectURL(new Blob([txt],{type}));
+  if (!dist.has(t)) return null;
 
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+  const path = [];
 
-      setTimeout(() => URL.revokeObjectURL(url),1000);
-    }
+  for (let u = t; u !== undefined; u = prev.get(u)) {
+    path.push(u);
+  }
 
-    $('bGpx').onclick = () => {
-      if (rc.length < 2) {
-        st('Maak eerst een route.');
-        return;
-      }
+  return {path:path.reverse(),d:dist.get(t)};
+}
 
-      dl(
-        'skeelerroute.gpx',
-        `<?xml version="1.0" encoding="UTF-8"?>
+function dl(name,txt,type) {
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(new Blob([txt],{type}));
+
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+
+  setTimeout(() => URL.revokeObjectURL(url),1000);
+}
+
+$('bGpx').onclick = () => {
+  if (rc.length < 2) {
+    st('Maak eerst een route.');
+    return;
+  }
+
+  dl(
+    'skeelerroute.gpx',
+    `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="skeelerkaart" xmlns="http://www.topografix.com/GPX/1/1">
   <trk>
     <name>Skeelerroute</name>
@@ -902,99 +906,99 @@
     </trkseg>
   </trk>
 </gpx>`,
-        'application/gpx+xml'
-      );
-    };
+    'application/gpx+xml'
+  );
+};
 
-    $('bExp').onclick = () => dl(
-      'skeeler-labels.json',
-      JSON.stringify(mine,null,1),
-      'application/json'
-    );
+$('bExp').onclick = () => dl(
+  'skeeler-labels.json',
+  JSON.stringify(mine,null,1),
+  'application/json'
+);
 
-    $('bImp').onclick = () => $('fImp').click();
+$('bImp').onclick = () => $('fImp').click();
 
-    $('fImp').onchange = async e => {
-      const file = e.target.files[0];
-      if (!file) return;
+$('fImp').onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-      try {
-        const imported = JSON.parse(await file.text());
+  try {
+    const imported = JSON.parse(await file.text());
 
-        if (
-          !imported ||
-          typeof imported !== 'object' ||
-          Array.isArray(imported)
-        ) {
-          throw new Error('Het importbestand moet een JSON-object bevatten.');
-        }
+    if (
+      !imported ||
+      typeof imported !== 'object' ||
+      Array.isArray(imported)
+    ) {
+      throw new Error('Het importbestand moet een JSON-object bevatten.');
+    }
 
-        Object.assign(mine,imported);
-        save();
-        ver++;
-        refresh();
-        stats();
-        if (wps.length) rebuild();
-        st('Labels geïmporteerd.');
-      } catch (e) {
-        console.error('Import mislukt:',e);
-        st('Import mislukt: ' + e.message);
-      }
+    Object.assign(mine,imported);
+    save();
+    ver++;
+    refresh();
+    stats();
+    if (wps.length) rebuild();
+    st('Labels geïmporteerd.');
+  } catch (e) {
+    console.error('Import mislukt:',e);
+    st('Import mislukt: ' + e.message);
+  }
 
-      $('fImp').value = '';
-    };
+  $('fImp').value = '';
+};
 
-    const showZ = () => {
-      const z = Math.round(map.getZoom());
-      $('zl').textContent =
-        'Zoom ' + z + (z < MINZ ? ' (te ver uit)' : '');
-    };
+const showZ = () => {
+  const z = Math.round(map.getZoom());
+  $('zl').textContent =
+    'Zoom ' + z + (z < MINZ ? ' (te ver uit)' : '');
+};
 
-    map.on('zoomend',showZ);
-    showZ();
-    buttons();
+map.on('zoomend',showZ);
+showZ();
+buttons();
 
-    let tm;
+let tm;
 
-    map.on('moveend', () => {
-      clearTimeout(tm);
-      tm = setTimeout(loadVisible,300);
-    });
+map.on('moveend', () => {
+  clearTimeout(tm);
+  tm = setTimeout(loadVisible,300);
+});
 
-    $('fs').onchange = $('fq').onchange = () => {
-      refresh();
-      if (wps.length) rebuild();
-    };
+$('fs').onchange = $('fq').onchange = () => {
+  refresh();
+  if (wps.length) rebuild();
+};
 
-    st('Data-index ophalen…');
+st('Data-index ophalen…');
 
-    // De data blijft uit dezelfde map op GitHub Pages komen.
-    fetch('data/index.json')
-      .then(r => {
-        if (!r.ok) {
-          throw new Error(`Data-index: HTTP ${r.status}`);
-        }
-        return r.json();
-      })
-      .then(async j => {
-        if (
-          !j ||
-          !j.chunks ||
-          !(Number(j.dy) > 0) ||
-          !(Number(j.dx) > 0)
-        ) {
-          throw new Error('Data-index mist geldige chunks, dy of dx.');
-        }
+// De data wordt uit dezelfde map op GitHub Pages opgehaald.
+fetch('data/index.json')
+  .then(r => {
+    if (!r.ok) {
+      throw new Error(`Data-index: HTTP ${r.status}`);
+    }
+    return r.json();
+  })
+  .then(async j => {
+    if (
+      !j ||
+      !j.chunks ||
+      !(Number(j.dy) > 0) ||
+      !(Number(j.dx) > 0)
+    ) {
+      throw new Error('Data-index mist geldige chunks, dy of dx.');
+    }
 
-        IDX = j;
-        IDX.rchunks = IDX.rchunks || {};
+    IDX = j;
+    IDX.rchunks = IDX.rchunks || {};
 
-        await loadVisible();
-      })
-      .catch(e => {
-        console.error('Laden mislukt:',e);
-        st('Laden mislukt: ' + e.message);
-      });
-  </script>
+    await loadVisible();
+  })
+  .catch(e => {
+    console.error('Laden mislukt:',e);
+    st('Laden mislukt: ' + e.message);
+  });
+</script>
 </body>
 </html>
